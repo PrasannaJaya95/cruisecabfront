@@ -124,7 +124,13 @@ export default function EmailSettings() {
       setTesting(true);
       setError('');
       setTestResult('');
-      const res = await api.post('/email-settings/test', {});
+      const res = await api.post('/email-settings/test', {
+        smtp_host: form.smtp_host,
+        smtp_port: Number(form.smtp_port),
+        username: form.username,
+        password: form.password,
+        encryption: form.encryption,
+      });
       setTestResult(res.data?.message || 'SMTP connection verified.');
     } catch (e) {
       const msg = e.response?.data?.message || 'SMTP connection test failed.';
