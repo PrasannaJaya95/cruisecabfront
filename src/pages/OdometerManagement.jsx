@@ -17,6 +17,8 @@ const OdometerManagement = () => {
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('all');
+    const [fleetCategories, setFleetCategories] = useState([]);
     const [formData, setFormData] = useState({
         vehicleId: '',
         reading: '',
@@ -26,12 +28,14 @@ const OdometerManagement = () => {
     const fetchData = async () => {
         try {
             setLoading(true);
-            const [odoRes, vehRes] = await Promise.all([
+            const [odoRes, vehRes, catRes] = await Promise.all([
                 api.get('/odometers'),
-                api.get('/vehicles')
+                api.get('/vehicles'),
+                api.get('/fleet/categories')
             ]);
             setOdometers(odoRes.data);
             setVehicles(vehRes.data);
+            setFleetCategories(Array.isArray(catRes.data) ? catRes.data : []);
         } catch (error) {
             console.error('Failed to sync telemetry registry', error);
         } finally {
@@ -63,10 +67,16 @@ const OdometerManagement = () => {
         }
     };
 
-    const filteredOdometers = odometers.filter(odo =>
-        odo.vehicle?.licensePlate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        odo.vehicle?.vehicleModel?.brand?.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredOdometers = odometers.filter((odo) => {
+        const catOk = categoryFilter === 'all' || odo.vehicle?.fleetCategoryId === categoryFilter;
+        const q = searchTerm.toLowerCase();
+        const plate = (odo.vehicle?.licensePlate || '').toLowerCase();
+        const brand = (odo.vehicle?.vehicleModel?.brand?.name || '').toLowerCase();
+        const model = (odo.vehicle?.vehicleModel?.name || '').toLowerCase();
+        const catName = (odo.vehicle?.fleetCategory?.name || '').toLowerCase();
+        const searchOk = !q || plate.includes(q) || brand.includes(q) || model.includes(q) || catName.includes(q);
+        return catOk && searchOk;
+    });
 
     const latestByVehicle = (() => {
         const map = new Map();
@@ -120,6 +130,7 @@ const OdometerManagement = () => {
                                             {vehicles.map(v => (
                                                 <SelectItem key={v.id} value={v.id} className="font-bold py-3 uppercase tracking-wider text-[10px]">
                                                     {v.vehicleModel?.brand?.name} {v.vehicleModel?.name} — <span className="text-primary">{v.licensePlate}</span>
+                                                    {v.fleetCategory?.name ? ` · ${v.fleetCategory.name}` : ''}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
@@ -166,12 +177,23 @@ const OdometerManagement = () => {
                 <div className="relative flex-1 min-w-[300px]">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                     <Input
-                        placeholder="Search logs by license plate or manufacturer..."
+                        placeholder="Search plate, brand, model, category…"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="pl-12 bg-secondary/50 border-border rounded-2xl h-12 text-sm font-medium focus:ring-4 focus:ring-primary/5 transition-all"
                     />
                 </div>
+                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                    <SelectTrigger className="w-[200px] h-12 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+                        <SelectValue placeholder="Category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All categories</SelectItem>
+                        {fleetCategories.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
                 <div className="flex items-center gap-6 px-4">
                     <div className="flex flex-col">
                         <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Historical Depth</span>

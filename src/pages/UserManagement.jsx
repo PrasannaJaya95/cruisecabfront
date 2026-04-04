@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -32,6 +33,7 @@ import { Plus, User, Trash2, Search, Filter, ShieldCheck, Mail, UserPlus, Users,
 import { cn } from "@/lib/utils";
 
 const UserManagement = () => {
+    const { user: currentUser } = useAuth();
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState(false);
@@ -85,13 +87,24 @@ const UserManagement = () => {
         }
     };
 
-    const handleDelete = async (id) => {
-        if (!confirm('Are you sure you want to delete this user?')) return;
+    /** Admin may delete non–Super Admin users; Super Admin may delete others (not self). */
+    const canDeleteUserRow = (rowUser) => {
+        if (!currentUser?.id || !rowUser?.id) return false;
+        if (currentUser.id === rowUser.id) return false;
+        if (currentUser.role === 'SUPER_ADMIN') return true;
+        if (currentUser.role === 'ADMIN') return rowUser.role !== 'SUPER_ADMIN';
+        return false;
+    };
+
+    const handleDelete = async (rowUser) => {
+        if (!canDeleteUserRow(rowUser)) return;
+        if (!confirm(`Are you sure you want to delete ${rowUser.name || rowUser.email}?`)) return;
         try {
-            await api.delete(`users/${id}`);
+            await api.delete(`users/${rowUser.id}`);
             fetchUsers();
         } catch (error) {
-            console.error("Error deleting user:", error);
+            console.error('Error deleting user:', error);
+            alert(error.response?.data?.message || 'Failed to delete user.');
         }
     };
 
@@ -274,7 +287,11 @@ const UserManagement = () => {
                                     <TableCell className="py-6">
                                         <span className={cn(
                                             "inline-flex items-center px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.1em] border shadow-sm",
-                                            user.role === 'ADMIN' ? "bg-primary/5 text-primary border-primary/20" : "bg-orange-50 text-orange-600 border-orange-200"
+                                            user.role === 'SUPER_ADMIN'
+                                                ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800"
+                                                : user.role === 'ADMIN'
+                                                    ? "bg-primary/5 text-primary border-primary/20"
+                                                    : "bg-orange-50 text-orange-600 border-orange-200"
                                         )}>
                                             <ShieldCheck className="w-3 h-3 mr-2" />
                                             {user.role}
@@ -292,14 +309,34 @@ const UserManagement = () => {
                                         </div>
                                     </TableCell>
                                     <TableCell className="py-6 pr-8 text-right">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-10 w-10 text-rose-500 hover:text-white hover:bg-rose-500 rounded-xl transition-all hover:scale-110 active:scale-90 hover:shadow-lg hover:shadow-rose-500/20"
-                                            onClick={() => handleDelete(user.id)}
-                                        >
-                                            <Trash2 className="h-5 w-5" />
-                                        </Button>
+                                        {canDeleteUserRow(user) ? (
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-10 w-10 text-rose-500 hover:text-white hover:bg-rose-500 rounded-xl transition-all hover:scale-110 active:scale-90 hover:shadow-lg hover:shadow-rose-500/20"
+                                                onClick={() => handleDelete(user)}
+                                                title="Delete user"
+                                            >
+                                                <Trash2 className="h-5 w-5" />
+                                            </Button>
+                                        ) : (
+                                            <span
+                                                className="inline-block text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 px-2 py-1 max-w-[140px] text-right"
+                                                title={
+                                                    user.id === currentUser?.id
+                                                        ? 'You cannot delete your own account'
+                                                        : user.role === 'SUPER_ADMIN'
+                                                            ? 'Only Super Admin can remove Super Admin accounts'
+                                                            : 'Insufficient permission'
+                                                }
+                                            >
+                                                {user.id === currentUser?.id
+                                                    ? '—'
+                                                    : user.role === 'SUPER_ADMIN' && currentUser?.role === 'ADMIN'
+                                                        ? 'Protected'
+                                                        : '—'}
+                                            </span>
+                                        )}
                                     </TableCell>
                                 </TableRow>
                             ))

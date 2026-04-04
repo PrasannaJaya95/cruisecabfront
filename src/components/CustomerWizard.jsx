@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
     DialogContent,
     DialogDescription,
@@ -35,7 +36,14 @@ const steps = [
     { id: 'review', title: 'Review' }
 ];
 
-const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isReadOnly = false }) => {
+const CustomerWizard = ({
+    open,
+    onOpenChange,
+    onSubmit,
+    initialData = null,
+    isReadOnly = false,
+    editingCustomerId = null,
+}) => {
     const [currentStep, setCurrentStep] = useState(0);
     const [direction, setDirection] = useState(0);
     const [customerType, setCustomerType] = useState('local');
@@ -51,8 +59,8 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
     const [submitting, setSubmitting] = useState(false);
 
     const [formData, setFormData] = useState({
-        email: '', address: '', phone: '', mobile: '',
-        name: '', nicOrPassport: '', passportNo: '',
+        email: '', address: '', phone: '', mobile: '', description: '',
+        name: '', nicOrPassport: '', drivingLicenseNo: '', passportNo: '',
         companyName: '', brNumber: '', contactPersonName: '', contactPersonMobile: '',
         closeRelationName: '', closeRelationMobile: '',
         userId: '',
@@ -63,7 +71,14 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
     });
 
     const [files, setFiles] = useState({
-        doc1: null, doc2: null, utilityBill: null, support1: null, support2: null, passport: null, otherDoc: null, brDoc: null, corporateOtherDoc: null,
+        doc1: null, doc2: null, utilityBill: null, drivingLicenseFront: null, drivingLicenseBack: null,
+        support1: null, support2: null, passport: null, otherDoc: null, brDoc: null, corporateOtherDoc: null,
+        intlDrivingLicenseFront: null, intlDrivingLicenseBack: null, aaPermit: null
+    });
+
+    const emptyFilesState = () => ({
+        doc1: null, doc2: null, utilityBill: null, drivingLicenseFront: null, drivingLicenseBack: null,
+        support1: null, support2: null, passport: null, otherDoc: null, brDoc: null, corporateOtherDoc: null,
         intlDrivingLicenseFront: null, intlDrivingLicenseBack: null, aaPermit: null
     });
 
@@ -72,20 +87,32 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
             setFormData({
                 ...initialData,
                 userId: initialData.userId || '',
+                drivingLicenseNo: initialData.drivingLicenseNo || '',
                 loyaltyEarnRate: initialData.loyaltyEarnRate || '',
                 loyaltyRedeemRate: initialData.loyaltyRedeemRate || ''
             });
             setCustomerType(initialData.type?.toLowerCase() || 'local');
+            setFiles({
+                ...emptyFilesState(),
+                doc1: initialData.doc1Url || null,
+                doc2: initialData.doc2Url || null,
+                utilityBill: initialData.utilityBillUrl || null,
+                drivingLicenseFront: initialData.drivingLicenseFrontUrl || null,
+                drivingLicenseBack: initialData.drivingLicenseBackUrl || null,
+                intlDrivingLicenseFront: initialData.intlDrivingLicenseFrontUrl || null,
+                intlDrivingLicenseBack: initialData.intlDrivingLicenseBackUrl || null,
+                aaPermit: initialData.aaPermitUrl || null,
+            });
         } else {
             setCurrentStep(0);
             setFormData({
-                email: '', address: '', phone: '', mobile: '',
-                name: '', nicOrPassport: '', passportNo: '',
+                email: '', address: '', phone: '', mobile: '', description: '',
+                name: '', nicOrPassport: '', drivingLicenseNo: '', passportNo: '',
                 companyName: '', brNumber: '', contactPersonName: '', contactPersonMobile: '',
                 closeRelationName: '', closeRelationMobile: '',
                 userId: ''
             });
-            setFiles({ doc1: null, doc2: null, utilityBill: null, support1: null, support2: null, passport: null, otherDoc: null, brDoc: null, corporateOtherDoc: null, intlDrivingLicenseFront: null, intlDrivingLicenseBack: null, aaPermit: null });
+            setFiles(emptyFilesState());
         }
     }, [open, initialData]);
 
@@ -120,6 +147,14 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
         const file = e.target.files[0];
         if (file) {
             setFiles(prev => ({ ...prev, [key]: file }));
+            const docErrorKeys = ['doc1', 'doc2', 'drivingLicenseFront', 'drivingLicenseBack'];
+            if (docErrorKeys.includes(key)) {
+                setErrors(prev => {
+                    const next = { ...prev };
+                    delete next[key];
+                    return next;
+                });
+            }
         }
     };
 
@@ -161,8 +196,8 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
 
         try {
             const params = new URLSearchParams({ nicOrPassport: nicValue });
-            if (initialData?.id) {
-                params.append('excludeId', initialData.id);
+            if (editingCustomerId) {
+                params.append('excludeId', editingCustomerId);
             }
 
             const response = await api.get(`/clients/check-nic?${params}`);
@@ -189,8 +224,8 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
 
         try {
             const params = new URLSearchParams({ passportNo: passportValue });
-            if (initialData?.id) {
-                params.append('excludeId', initialData.id);
+            if (editingCustomerId) {
+                params.append('excludeId', editingCustomerId);
             }
 
             const response = await api.get(`/clients/check-passport?${params}`);
@@ -217,15 +252,16 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
 
         try {
             const params = new URLSearchParams({ brNumber: brValue });
-            if (initialData?.id) {
-                params.append('excludeId', initialData.id);
+            if (editingCustomerId) {
+                params.append('excludeId', editingCustomerId);
             }
 
             const response = await api.get(`/clients/check-br?${params}`);
 
             if (response.data.exists) {
                 const customer = response.data.customer;
-                setBrError(`This BR Number is already registered to ${customer.name} (${customer.code})`);
+                const label = customer.companyName || customer.name || 'another company';
+                setBrError(`This BR Number is already registered to ${label} (${customer.code})`);
                 return false;
             }
 
@@ -245,8 +281,8 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
 
         try {
             const params = new URLSearchParams({ email: emailValue });
-            if (initialData?.id) {
-                params.append('excludeId', initialData.id);
+            if (editingCustomerId) {
+                params.append('excludeId', editingCustomerId);
             }
 
             const response = await api.get(`/clients/check-email?${params}`);
@@ -277,10 +313,13 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
             } else {
                 if (!formData.name) newErrors.name = 'Full Name is required';
                 if (customerType === 'local' && !formData.nicOrPassport) newErrors.nicOrPassport = 'NIC/Passport is required';
+                if (customerType === 'local' && !String(formData.drivingLicenseNo || '').trim()) {
+                    newErrors.drivingLicenseNo = 'Driving license number is required';
+                }
                 if (customerType === 'foreign' && !formData.passportNo) newErrors.passportNo = 'Passport Number is required';
             }
         } else if (currentId === 'contact') {
-            if (!formData.email) newErrors.email = 'Email is required';
+            // Email optional for all customer types
             // Landline is optional for Local and Foreign customers
             if (customerType === 'corporate' && !formData.phone) {
                 newErrors.phone = 'Phone is required';
@@ -294,23 +333,21 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                 newErrors.address = 'Address is required';
             }
         } else if (currentId === 'relations') {
-            if (customerType === 'local') {
-                if (!formData.closeRelationName) newErrors.closeRelationName = 'Relation Name is required';
-                if (!formData.closeRelationMobile) newErrors.closeRelationMobile = 'Relation Mobile is required';
-            } else if (customerType === 'corporate') {
+            if (customerType === 'corporate') {
                 if (!formData.contactPersonName) newErrors.contactPersonName = 'Contact Person Name is required';
                 if (!formData.contactPersonMobile) newErrors.contactPersonMobile = 'Contact Person Mobile is required';
             }
-            // Relations are optional for Foreign customers
+            // Emergency contact (local / foreign) is optional
         }
-        // Documents can be optional or mandatory. User logic seemed to imply mandatory.
-        // Let's make doc1/doc2 mandatory for now.
-        else if (currentId === 'documents') {
-            // Skipping file validation for edit mode or if user just wants flexibility.
-            // But user asked for "Missing mandatory fields" fix, so we should enforce.
-            // However, for file inputs in edit mode, we might usually have URLs already. 
-            // We don't have URL state here properly mapped from initialData. 
-            // Let's skip file validation for now or check if initialData has URLs.
+        else if (currentId === 'documents' && customerType === 'local') {
+            const hasDoc1 = files.doc1 || initialData?.doc1Url;
+            const hasDoc2 = files.doc2 || initialData?.doc2Url;
+            const hasDlFront = files.drivingLicenseFront || initialData?.drivingLicenseFrontUrl;
+            const hasDlBack = files.drivingLicenseBack || initialData?.drivingLicenseBackUrl;
+            if (!hasDoc1) newErrors.doc1 = 'NIC front is required';
+            if (!hasDoc2) newErrors.doc2 = 'NIC back is required';
+            if (!hasDlFront) newErrors.drivingLicenseFront = 'Driving license front is required';
+            if (!hasDlBack) newErrors.drivingLicenseBack = 'Driving license back is required';
         }
 
         if (Object.keys(newErrors).length > 0) {
@@ -385,17 +422,17 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                 }
             }
 
-            if (formData.nicOrPassport) {
+            if (customerType === 'local' && formData.nicOrPassport) {
                 const isNicValid = await checkNicDuplicate(formData.nicOrPassport);
                 if (!isNicValid) {
-                    alert(`Submission failed: ${nicError || 'This NIC/Passport is already in use.'}`);
+                    alert(`Submission failed: ${nicError || 'This NIC is already in use.'}`);
                     setCurrentStep(1); // Basic Info step
                     setSubmitting(false);
                     return;
                 }
             }
 
-            if (formData.passportNo) {
+            if (customerType === 'foreign' && formData.passportNo) {
                 const isPassportValid = await checkPassportDuplicate(formData.passportNo);
                 if (!isPassportValid) {
                     alert(`Submission failed: ${passportError || 'This Passport number is already in use.'}`);
@@ -405,7 +442,7 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                 }
             }
 
-            if (formData.brNumber) {
+            if (customerType === 'corporate' && formData.brNumber) {
                 const isBrValid = await checkBrDuplicate(formData.brNumber);
                 if (!isBrValid) {
                     alert(`Submission failed: ${brError || 'This BR Number is already in use.'}`);
@@ -572,18 +609,30 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                                             {errors.name && <span className="text-[10px] font-black uppercase tracking-widest text-red-500 ml-1">{errors.name}</span>}
                                         </div>
                                         {customerType === 'local' && (
-                                            <div className="space-y-3">
-                                                <Label htmlFor="nicOrPassport" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">NIC Number *</Label>
-                                                <Input
-                                                    id="nicOrPassport"
-                                                    value={formData.nicOrPassport}
-                                                    onChange={handleInputChange}
-                                                    onBlur={(e) => checkNicDuplicate(e.target.value)}
-                                                    className={cn("bg-secondary/30 border-border rounded-xl h-12 focus:ring-primary/20", (errors.nicOrPassport || nicError) && "border-red-500")}
-                                                />
-                                                {errors.nicOrPassport && <span className="text-[10px] font-black uppercase tracking-widest text-red-500 ml-1">{errors.nicOrPassport}</span>}
-                                                {nicError && <span className="text-[10px] font-black uppercase tracking-widest text-red-500 flex items-center gap-1 ml-1"><AlertCircle className="w-3 h-3" />{nicError}</span>}
-                                            </div>
+                                            <>
+                                                <div className="space-y-3">
+                                                    <Label htmlFor="nicOrPassport" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">NIC Number *</Label>
+                                                    <Input
+                                                        id="nicOrPassport"
+                                                        value={formData.nicOrPassport}
+                                                        onChange={handleInputChange}
+                                                        onBlur={(e) => checkNicDuplicate(e.target.value)}
+                                                        className={cn("bg-secondary/30 border-border rounded-xl h-12 focus:ring-primary/20", (errors.nicOrPassport || nicError) && "border-red-500")}
+                                                    />
+                                                    {errors.nicOrPassport && <span className="text-[10px] font-black uppercase tracking-widest text-red-500 ml-1">{errors.nicOrPassport}</span>}
+                                                    {nicError && <span className="text-[10px] font-black uppercase tracking-widest text-red-500 flex items-center gap-1 ml-1"><AlertCircle className="w-3 h-3" />{nicError}</span>}
+                                                </div>
+                                                <div className="space-y-3">
+                                                    <Label htmlFor="drivingLicenseNo" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">Driving License Number *</Label>
+                                                    <Input
+                                                        id="drivingLicenseNo"
+                                                        value={formData.drivingLicenseNo}
+                                                        onChange={handleInputChange}
+                                                        className={cn("bg-secondary/30 border-border rounded-xl h-12 focus:ring-primary/20", errors.drivingLicenseNo && "border-red-500")}
+                                                    />
+                                                    {errors.drivingLicenseNo && <span className="text-[10px] font-black uppercase tracking-widest text-red-500 ml-1">{errors.drivingLicenseNo}</span>}
+                                                </div>
+                                            </>
                                         )}
                                         {customerType === 'foreign' && (
                                             <div className="space-y-3">
@@ -698,7 +747,9 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                                 <h3 className="text-2xl font-black text-foreground tracking-tight mb-8">Contact Details</h3>
                                 <div className="grid grid-cols-2 gap-6">
                                     <div className="space-y-3">
-                                        <Label htmlFor="email" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">Email Address *</Label>
+                                        <Label htmlFor="email" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">
+                                            Email Address (optional)
+                                        </Label>
                                         <Input
                                             id="email"
                                             type="email"
@@ -727,6 +778,18 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                                         <Input id="address" value={formData.address} onChange={handleInputChange} className={cn("bg-secondary/30 border-border rounded-xl h-12 focus:ring-primary/20", errors.address && "border-red-500")} />
                                         {errors.address && <span className="text-[10px] font-black uppercase tracking-widest text-red-500 ml-1">{errors.address}</span>}
                                     </div>
+                                    <div className="space-y-3 col-span-2">
+                                        <Label htmlFor="description" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">Description (optional)</Label>
+                                        <Textarea
+                                            id="description"
+                                            value={formData.description || ''}
+                                            onChange={handleInputChange}
+                                            placeholder="Internal notes, preferences, or other context…"
+                                            rows={4}
+                                            disabled={isReadOnly}
+                                            className="bg-secondary/30 border-border rounded-xl min-h-[100px] focus:ring-primary/20 resize-y"
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -735,17 +798,19 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                             <div className="space-y-8 max-w-2xl mx-auto py-4">
                                 <h3 className="text-2xl font-black text-foreground tracking-tight mb-8">
                                     {customerType === 'corporate' ? 'Company Contact Person' : 'Emergency Contact'}
-                                    {customerType === 'foreign' && <span className="text-[10px] font-black text-muted-foreground/60 uppercase tracking-widest ml-4">(Optional)</span>}
+                                    {(customerType === 'local' || customerType === 'foreign') && (
+                                        <span className="text-[10px] font-black text-muted-foreground/60 uppercase tracking-widest ml-4">(Optional)</span>
+                                    )}
                                 </h3>
                                 {(customerType === 'local' || customerType === 'foreign') && (
                                     <div className="grid grid-cols-2 gap-6">
                                         <div className="space-y-3">
-                                            <Label htmlFor="closeRelationName" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">Relation Name {customerType === 'local' && '*'}</Label>
+                                            <Label htmlFor="closeRelationName" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">Relation Name (optional)</Label>
                                             <Input id="closeRelationName" value={formData.closeRelationName} onChange={handleInputChange} className={cn("bg-secondary/30 border-border rounded-xl h-12 focus:ring-primary/20", errors.closeRelationName && "border-red-500")} />
                                             {errors.closeRelationName && <span className="text-[10px] font-black uppercase tracking-widest text-red-500 ml-1">{errors.closeRelationName}</span>}
                                         </div>
                                         <div className="space-y-3">
-                                            <Label htmlFor="closeRelationMobile" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">Relation Mobile {customerType === 'local' && '*'}</Label>
+                                            <Label htmlFor="closeRelationMobile" className="font-black uppercase tracking-widest text-[10px] text-muted-foreground ml-1">Relation Mobile (optional)</Label>
                                             <Input id="closeRelationMobile" value={formData.closeRelationMobile} onChange={handleInputChange} className={cn("bg-secondary/30 border-border rounded-xl h-12 focus:ring-primary/20", errors.closeRelationMobile && "border-red-500")} />
                                             {errors.closeRelationMobile && <span className="text-[10px] font-black uppercase tracking-widest text-red-500 ml-1">{errors.closeRelationMobile}</span>}
                                         </div>
@@ -772,15 +837,21 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                             <div className="space-y-8 max-w-4xl mx-auto py-4">
                                 <h3 className="text-2xl font-black text-foreground tracking-tight mb-8">Upload Documents</h3>
                                 <div className="grid grid-cols-2 gap-4">
-                                    {/* Required Documents First */}
+                                    {customerType === 'local' && (errors.doc1 || errors.doc2 || errors.drivingLicenseFront || errors.drivingLicenseBack) && (
+                                        <div className="col-span-2 rounded-2xl border border-red-500/40 bg-red-500/5 p-4 space-y-1 mb-2">
+                                            {[errors.doc1, errors.doc2, errors.drivingLicenseFront, errors.drivingLicenseBack].filter(Boolean).map((msg, idx) => (
+                                                <p key={`${msg}-${idx}`} className="text-[10px] font-black uppercase tracking-widest text-red-500">{msg}</p>
+                                            ))}
+                                        </div>
+                                    )}
                                     <ImageUploadPreview
                                         id="utilityBill"
-                                        label="Utility Bill / Visa"
+                                        label={customerType === 'local' ? 'Utility Bill / Visa (optional)' : 'Utility Bill / Visa'}
                                         file={files.utilityBill}
                                         onChange={(e) => handleFileChange(e, 'utilityBill')}
                                         onView={handleViewImage}
                                         onRemove={() => handleFileRemove('utilityBill')}
-                                        required
+                                        required={customerType !== 'local'}
                                     />
                                     {customerType === 'foreign' && (
                                         <>
@@ -834,7 +905,6 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                                         />
                                     )}
 
-                                    {/* Optional Documents */}
                                     <ImageUploadPreview
                                         id="doc1"
                                         label={customerType === 'local' ? 'NIC Front' : 'NIC Front (optional)'}
@@ -853,6 +923,28 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
                                         onRemove={() => handleFileRemove('doc2')}
                                         required={customerType === 'local'}
                                     />
+                                    {customerType === 'local' && (
+                                        <>
+                                            <ImageUploadPreview
+                                                id="drivingLicenseFront"
+                                                label="Driving License (Front)"
+                                                file={files.drivingLicenseFront}
+                                                onChange={(e) => handleFileChange(e, 'drivingLicenseFront')}
+                                                onView={handleViewImage}
+                                                onRemove={() => handleFileRemove('drivingLicenseFront')}
+                                                required
+                                            />
+                                            <ImageUploadPreview
+                                                id="drivingLicenseBack"
+                                                label="Driving License (Back)"
+                                                file={files.drivingLicenseBack}
+                                                onChange={(e) => handleFileChange(e, 'drivingLicenseBack')}
+                                                onView={handleViewImage}
+                                                onRemove={() => handleFileRemove('drivingLicenseBack')}
+                                                required
+                                            />
+                                        </>
+                                    )}
                                     <ImageUploadPreview
                                         id="otherDoc"
                                         label="Other Document"
@@ -889,8 +981,17 @@ const CustomerWizard = ({ open, onOpenChange, onSubmit, initialData = null, isRe
 
                                 <div className="bg-secondary/30 p-10 rounded-[2.5rem] border border-border text-left space-y-4 shadow-xl mt-10">
                                     <div className="flex justify-between items-center"><span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Name</span> <span className="text-lg font-black text-foreground">{formData.name || formData.companyName}</span></div>
-                                    <div className="flex justify-between items-center"><span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Email</span> <span className="text-lg font-black text-foreground">{formData.email}</span></div>
+                                    {customerType === 'local' && String(formData.drivingLicenseNo || '').trim() ? (
+                                        <div className="flex justify-between items-center"><span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Driving License No.</span> <span className="text-lg font-black text-foreground">{formData.drivingLicenseNo.trim()}</span></div>
+                                    ) : null}
+                                    <div className="flex justify-between items-center"><span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Email</span> <span className="text-lg font-black text-foreground">{formData.email?.trim() || '—'}</span></div>
                                     <div className="flex justify-between items-center"><span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Mobile</span> <span className="text-lg font-black text-foreground">{formData.mobile}</span></div>
+                                    {formData.description?.trim() ? (
+                                        <div className="pt-2 border-t border-border/60">
+                                            <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest block mb-2">Description</span>
+                                            <p className="text-sm font-medium text-foreground whitespace-pre-wrap">{formData.description.trim()}</p>
+                                        </div>
+                                    ) : null}
                                     <div className="flex justify-between items-center"><span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Registration</span> <span className="text-xs font-black px-4 py-2 bg-primary/10 text-primary rounded-full uppercase tracking-widest">{customerType}</span></div>
                                 </div>
                             </div>

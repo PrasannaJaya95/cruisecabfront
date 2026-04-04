@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -64,8 +64,13 @@ const Contracts = () => {
     const [filteredContracts, setFilteredContracts] = useState([]); // Displayed contracts
     const [searchParams, setSearchParams] = useSearchParams();
     const [statusFilter, setStatusFilter] = useState('ALL');
+    const [contractListCategoryFilter, setContractListCategoryFilter] = useState('all');
+    const [contractListSearch, setContractListSearch] = useState('');
     const [customers, setCustomers] = useState([]);
     const [vehicles, setVehicles] = useState([]);
+    const [fleetCategories, setFleetCategories] = useState([]);
+    const [contractVehicleCategoryFilter, setContractVehicleCategoryFilter] = useState('all');
+    const [contractVehicleSearch, setContractVehicleSearch] = useState('');
     const [districts, setDistricts] = useState([]);
     const [cities, setCities] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -254,8 +259,44 @@ const Contracts = () => {
         fetchContracts();
         fetchCustomers();
         fetchVehicles();
+        fetchFleetCategories();
         fetchDistricts();
     }, []);
+
+    const vehiclesForContractSelect = useMemo(() => {
+        return vehicles.filter((v) => {
+            const catOk =
+                contractVehicleCategoryFilter === 'all' || v.fleetCategoryId === contractVehicleCategoryFilter;
+            const q = contractVehicleSearch.trim().toLowerCase();
+            const hay = `${v.licensePlate} ${v.vehicleModel?.brand?.name || ''} ${v.vehicleModel?.name || ''} ${v.fleetCategory?.name || ''}`.toLowerCase();
+            if (!catOk || (q && !hay.includes(q))) return false;
+
+            if (v.status !== 'AVAILABLE' && v.id !== formData.vehicleId) return false;
+            if (formData.pickupDate && formData.dropoffDate) {
+                const start = new Date(formData.pickupDate);
+                const end = new Date(formData.dropoffDate);
+                const hasConflict = contracts.some((c) => {
+                    if (c.vehicleId !== v.id) return false;
+                    if (editingId && c.id === editingId) return false;
+                    if (!['UPCOMING', 'IN_PROGRESS'].includes(c.status)) return false;
+                    const cStart = new Date(c.pickupDate);
+                    const cEnd = new Date(c.dropoffDate);
+                    return start <= cEnd && end >= cStart;
+                });
+                if (hasConflict) return false;
+            }
+            return true;
+        });
+    }, [
+        vehicles,
+        contractVehicleCategoryFilter,
+        contractVehicleSearch,
+        formData.vehicleId,
+        formData.pickupDate,
+        formData.dropoffDate,
+        contracts,
+        editingId,
+    ]);
 
     useEffect(() => {
         if (editingId && isOpen) {
@@ -304,8 +345,23 @@ const Contracts = () => {
         if (statusFilter !== 'ALL') {
             result = result.filter(c => c.status === statusFilter);
         }
+        if (contractListCategoryFilter !== 'all') {
+            result = result.filter((c) => c.vehicle?.fleetCategoryId === contractListCategoryFilter);
+        }
+        const q = contractListSearch.trim().toLowerCase();
+        if (q) {
+            result = result.filter((c) => {
+                const plate = (c.vehicle?.licensePlate || '').toLowerCase();
+                const model = (c.vehicle?.vehicleModel?.name || '').toLowerCase();
+                const brand = (c.vehicle?.vehicleModel?.brand?.name || '').toLowerCase();
+                const cat = (c.vehicle?.fleetCategory?.name || '').toLowerCase();
+                const cust = (c.customer?.name || '').toLowerCase();
+                const no = String(c.contractNo || '').toLowerCase();
+                return plate.includes(q) || model.includes(q) || brand.includes(q) || cat.includes(q) || cust.includes(q) || no.includes(q);
+            });
+        }
         setFilteredContracts(result);
-    }, [contracts, statusFilter]);
+    }, [contracts, statusFilter, contractListCategoryFilter, contractListSearch]);
 
     useEffect(() => {
         if (formData.districtId) {
@@ -345,6 +401,15 @@ const Contracts = () => {
         try {
             const res = await api.get('/vehicles');
             setVehicles(res.data);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const fetchFleetCategories = async () => {
+        try {
+            const res = await api.get('/fleet/categories');
+            setFleetCategories(Array.isArray(res.data) ? res.data : []);
         } catch (error) {
             console.error(error);
         }
@@ -845,7 +910,24 @@ const Contracts = () => {
 
             <div className="flex justify-between items-center">
                 <h1 className="text-3xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">Contracts</h1>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-4">
+                    <Input
+                        className="w-[220px]"
+                        placeholder="Search contract, customer, vehicle, category…"
+                        value={contractListSearch}
+                        onChange={(e) => setContractListSearch(e.target.value)}
+                    />
+                    <Select value={contractListCategoryFilter} onValueChange={setContractListCategoryFilter}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All categories</SelectItem>
+                            {fleetCategories.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                     <Select disabled={isReadOnly} value={statusFilter} onValueChange={(val) => {
                         setStatusFilter(val);
                         setSearchParams(val === 'ALL' ? {} : { status: val });
@@ -911,39 +993,40 @@ const Contracts = () => {
                                 </div>
                                 <div className="space-y-2">
                                     <Label>Vehicle</Label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <Select
+                                            disabled={isReadOnly}
+                                            value={contractVehicleCategoryFilter}
+                                            onValueChange={setContractVehicleCategoryFilter}
+                                        >
+                                            <SelectTrigger className="h-9 text-xs">
+                                                <SelectValue placeholder="Category" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">All categories</SelectItem>
+                                                {fleetCategories.map((c) => (
+                                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Input
+                                            disabled={isReadOnly}
+                                            className="h-9 text-xs"
+                                            placeholder="Search plate, brand, model, category…"
+                                            value={contractVehicleSearch}
+                                            onChange={(e) => setContractVehicleSearch(e.target.value)}
+                                        />
+                                    </div>
                                     <Select disabled={isReadOnly} value={formData.vehicleId} onValueChange={(val) => handleChange('vehicleId', val)}>
                                         <SelectTrigger>
                                             <SelectValue placeholder="Select Vehicle" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {vehicles.filter(v => {
-                                                // 1. Must be generally available (or the current one)
-                                                if (v.status !== 'AVAILABLE' && v.id !== formData.vehicleId) return false;
-
-                                                // 2. Must NOT overlap with existing bookings if dates are selected
-                                                if (formData.pickupDate && formData.dropoffDate) {
-                                                    const start = new Date(formData.pickupDate);
-                                                    const end = new Date(formData.dropoffDate);
-
-                                                    // Check existing contracts
-                                                    const hasConflict = contracts.some(c => {
-                                                        if (c.vehicleId !== v.id) return false; // Different vehicle
-                                                        if (editingId && c.id === editingId) return false; // Don't check against self
-                                                        if (!['UPCOMING', 'IN_PROGRESS'].includes(c.status)) return false; // Ignore returned/cancelled
-
-                                                        const cStart = new Date(c.pickupDate);
-                                                        const cEnd = new Date(c.dropoffDate);
-
-                                                        // Check Overlap: (StartA <= EndB) and (EndA >= StartB)
-                                                        return (start <= cEnd && end >= cStart);
-                                                    });
-
-                                                    if (hasConflict) return false;
-                                                }
-
-                                                return true;
-                                            }).map(v => (
-                                                <SelectItem key={v.id} value={v.id}>{v.licensePlate} - {v.vehicleModel?.name}</SelectItem>
+                                            {vehiclesForContractSelect.map((v) => (
+                                                <SelectItem key={v.id} value={v.id}>
+                                                    {v.licensePlate} - {v.vehicleModel?.name}
+                                                    {v.fleetCategory?.name ? ` · ${v.fleetCategory.name}` : ''}
+                                                </SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -2647,6 +2730,7 @@ const Contracts = () => {
                             <TableHead>Contract No</TableHead>
                             <TableHead>Customer</TableHead>
                             <TableHead>Vehicle</TableHead>
+                            <TableHead>Category</TableHead>
                             <TableHead>Active Vehicle</TableHead>
                             <TableHead>Dates</TableHead>
                             <TableHead>Status</TableHead>
@@ -2655,7 +2739,7 @@ const Contracts = () => {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {loading ? <TableRow><TableCell colSpan={7}>Loading...</TableCell></TableRow> :
+                        {loading ? <TableRow><TableCell colSpan={9}>Loading...</TableCell></TableRow> :
                             filteredContracts.map(contract => (
                                 <TableRow
                                     key={contract.id}
@@ -2667,6 +2751,9 @@ const Contracts = () => {
                                     </TableCell>
                                     <TableCell>{contract.customer?.name}</TableCell>
                                     <TableCell>{contract.vehicle?.licensePlate}</TableCell>
+                                    <TableCell className="text-sm text-muted-foreground">
+                                        {contract.vehicle?.fleetCategory?.name || '—'}
+                                    </TableCell>
                                     <TableCell>
                                         {(() => {
                                             const lastEx = contract.vehicleExchanges?.length > 0 ? contract.vehicleExchanges[contract.vehicleExchanges.length - 1] : null;

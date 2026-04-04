@@ -68,7 +68,9 @@ const VehicleListing = () => {
     const [selectedBrands, setSelectedBrands] = useState([]);
     const [selectedFuelTypes, setSelectedFuelTypes] = useState([]);
     const [selectedTransmissions, setSelectedTransmissions] = useState([]);
+    const [selectedFleetCategories, setSelectedFleetCategories] = useState([]);
     const [availableBrands, setAvailableBrands] = useState([]);
+    const [fleetCategoriesCatalog, setFleetCategoriesCatalog] = useState([]);
 
     const fetchVehicles = async () => {
         setLoading(true);
@@ -77,6 +79,7 @@ const VehicleListing = () => {
             selectedBrands.forEach(b => params.append('brand', b));
             selectedFuelTypes.forEach(f => params.append('fuelType', f));
             selectedTransmissions.forEach(t => params.append('transmission', t));
+            selectedFleetCategories.forEach((id) => params.append('fleetCategoryId', id));
 
             console.log("Fetching vehicles from API...");
             const { data } = await api.get(`/vehicles?${params.toString()}`);
@@ -96,7 +99,9 @@ const VehicleListing = () => {
 
     useEffect(() => {
         fetchVehicles();
+    }, [selectedBrands, selectedFuelTypes, selectedTransmissions, selectedFleetCategories]);
 
+    useEffect(() => {
         const fetchSettings = async () => {
             try {
                 const { data } = await api.get('/settings/website_logo');
@@ -107,8 +112,17 @@ const VehicleListing = () => {
                 console.error("Failed to fetch website branding", err);
             }
         };
+        const fetchFleetCats = async () => {
+            try {
+                const { data } = await api.get('/fleet/categories');
+                setFleetCategoriesCatalog(Array.isArray(data) ? data : []);
+            } catch (err) {
+                console.error("Failed to fetch fleet categories", err);
+            }
+        };
         fetchSettings();
-    }, [selectedBrands, selectedFuelTypes, selectedTransmissions]);
+        fetchFleetCats();
+    }, []);
 
     const toggleFilter = (setFilter, currentFilters, value) => {
         if (currentFilters.includes(value)) {
@@ -122,6 +136,7 @@ const VehicleListing = () => {
         setSelectedBrands([]);
         setSelectedFuelTypes([]);
         setSelectedTransmissions([]);
+        setSelectedFleetCategories([]);
     };
 
     return (
@@ -173,7 +188,26 @@ const VehicleListing = () => {
                         </div>
 
                         <div className="bg-card border border-border rounded-[2.5rem] p-8 shadow-xl">
-                            <Accordion type="multiple" defaultValue={["brand", "transmission", "fuel"]} className="w-full">
+                            <Accordion type="multiple" defaultValue={["category", "brand", "transmission", "fuel"]} className="w-full">
+                                <AccordionItem value="category" className="border-b border-border">
+                                    <AccordionTrigger className="text-xs font-black text-foreground hover:no-underline uppercase tracking-[0.2em]">Fleet category</AccordionTrigger>
+                                    <AccordionContent className="space-y-3 pt-2">
+                                        {fleetCategoriesCatalog.length > 0 ? fleetCategoriesCatalog.map((cat) => (
+                                            <div key={cat.id} className="flex items-center space-x-3">
+                                                <Checkbox
+                                                    id={`fc-${cat.id}`}
+                                                    checked={selectedFleetCategories.includes(cat.id)}
+                                                    onCheckedChange={() => toggleFilter(setSelectedFleetCategories, selectedFleetCategories, cat.id)}
+                                                />
+                                                <label htmlFor={`fc-${cat.id}`} className="text-xs font-bold text-muted-foreground cursor-pointer leading-none uppercase tracking-widest">
+                                                    {cat.name}
+                                                </label>
+                                            </div>
+                                        )) : (
+                                            <p className="text-[10px] text-muted-foreground uppercase tracking-widest">No categories configured</p>
+                                        )}
+                                    </AccordionContent>
+                                </AccordionItem>
                                 <AccordionItem value="brand" className="border-b border-border">
                                     <AccordionTrigger className="text-xs font-black text-foreground hover:no-underline uppercase tracking-[0.2em]">Brand</AccordionTrigger>
                                     <AccordionContent className="space-y-3 pt-2">

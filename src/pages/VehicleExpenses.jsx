@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,9 @@ const VehicleExpenses = () => {
 
     // Filter states
     const [filterVehicle, setFilterVehicle] = useState('ALL');
+    const [filterFleetCategory, setFilterFleetCategory] = useState('ALL');
+    const [expenseSearch, setExpenseSearch] = useState('');
+    const [fleetCategories, setFleetCategories] = useState([]);
     const [filterStartDate, setFilterStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
     const [filterEndDate, setFilterEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
 
@@ -54,8 +57,18 @@ const VehicleExpenses = () => {
 
     useEffect(() => {
         fetchVehicles();
+        fetchFleetCategories();
         fetchExpenses();
     }, []);
+
+    const fetchFleetCategories = async () => {
+        try {
+            const res = await api.get('/fleet/categories');
+            setFleetCategories(Array.isArray(res.data) ? res.data : []);
+        } catch (e) {
+            console.error(e);
+        }
+    };
 
     const fetchExpenses = async () => {
         try {
@@ -125,7 +138,24 @@ const VehicleExpenses = () => {
         }
     };
 
-    const totalAmount = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+    const displayedExpenses = useMemo(() => {
+        let list = expenses;
+        if (filterFleetCategory !== 'ALL') {
+            list = list.filter((e) => e.vehicle?.fleetCategoryId === filterFleetCategory);
+        }
+        const q = expenseSearch.trim().toLowerCase();
+        if (q) {
+            list = list.filter((e) => {
+                const plate = (e.vehicle?.licensePlate || '').toLowerCase();
+                const cat = (e.vehicle?.fleetCategory?.name || '').toLowerCase();
+                const desc = (e.description || '').toLowerCase();
+                return plate.includes(q) || cat.includes(q) || desc.includes(q);
+            });
+        }
+        return list;
+    }, [expenses, filterFleetCategory, expenseSearch]);
+
+    const totalAmount = displayedExpenses.reduce((sum, exp) => sum + Number(exp.amount || 0), 0);
 
     return (
         <div className="p-8 space-y-8 animate-in fade-in duration-500">
@@ -148,7 +178,7 @@ const VehicleExpenses = () => {
 
             {/* Filters Section */}
             <div className="bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl border border-border/50 rounded-[2.5rem] p-8 shadow-2xl shadow-black/[0.02]">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 items-end">
                     <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Vehicle Registry</Label>
                         <Select value={filterVehicle} onValueChange={setFilterVehicle}>
@@ -159,11 +189,34 @@ const VehicleExpenses = () => {
                                 <SelectItem value="ALL" className="text-xs uppercase font-bold tracking-widest">All Vehicles</SelectItem>
                                 {vehicles.map(v => (
                                     <SelectItem key={v.id} value={v.id} className="text-xs uppercase font-bold tracking-widest">
-                                        {v.licensePlate}
+                                        {v.licensePlate}{v.fleetCategory?.name ? ` · ${v.fleetCategory.name}` : ''}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
+                    </div>
+                    <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Fleet category</Label>
+                        <Select value={filterFleetCategory} onValueChange={setFilterFleetCategory}>
+                            <SelectTrigger className="h-12 bg-white/50 dark:bg-slate-800/50 border-border/50 rounded-xl text-xs font-bold uppercase tracking-widest">
+                                <SelectValue placeholder="All categories" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="ALL" className="text-xs uppercase font-bold tracking-widest">All categories</SelectItem>
+                                {fleetCategories.map((c) => (
+                                    <SelectItem key={c.id} value={c.id} className="text-xs uppercase font-bold tracking-widest">{c.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="space-y-2 lg:col-span-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Search</Label>
+                        <Input
+                            className="h-12 bg-white/50 dark:bg-slate-800/50 border-border/50 rounded-xl text-xs font-bold tracking-widest"
+                            placeholder="Plate, category, description…"
+                            value={expenseSearch}
+                            onChange={(e) => setExpenseSearch(e.target.value)}
+                        />
                     </div>
                     <div className="space-y-2">
                         <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">From Date</Label>
@@ -211,6 +264,7 @@ const VehicleExpenses = () => {
                     <TableHeader className="bg-muted/50">
                         <TableRow className="hover:bg-transparent border-border/50">
                             <TableHead className="py-6 px-8 text-[10px] font-black uppercase tracking-[0.2em]">Vehicle</TableHead>
+                            <TableHead className="py-6 text-[10px] font-black uppercase tracking-[0.2em]">Category</TableHead>
                             <TableHead className="py-6 text-[10px] font-black uppercase tracking-[0.2em]">Description</TableHead>
                             <TableHead className="py-6 text-[10px] font-black uppercase tracking-[0.2em]">Date</TableHead>
                             <TableHead className="py-6 text-[10px] font-black uppercase tracking-[0.2em]">Amount</TableHead>
@@ -220,10 +274,12 @@ const VehicleExpenses = () => {
                     </TableHeader>
                     <TableBody>
                         {loading ? (
-                            <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground uppercase font-black tracking-widest animate-pulse">Loading Ledger...</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={7} className="text-center py-20 text-muted-foreground uppercase font-black tracking-widest animate-pulse">Loading Ledger...</TableCell></TableRow>
                         ) : expenses.length === 0 ? (
-                            <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground uppercase font-black tracking-widest">No expenses found for this period</TableCell></TableRow>
-                        ) : expenses.map((expense) => (
+                            <TableRow><TableCell colSpan={7} className="text-center py-20 text-muted-foreground uppercase font-black tracking-widest">No expenses found for this period</TableCell></TableRow>
+                        ) : displayedExpenses.length === 0 ? (
+                            <TableRow><TableCell colSpan={7} className="text-center py-20 text-muted-foreground uppercase font-black tracking-widest">No rows match category / search</TableCell></TableRow>
+                        ) : displayedExpenses.map((expense) => (
                             <TableRow key={expense.id} className="group hover:bg-primary/[0.02] border-border/50 transition-colors">
                                 <TableCell className="py-6 px-8">
                                     <div className="flex items-center gap-3">
@@ -235,6 +291,9 @@ const VehicleExpenses = () => {
                                             <p className="text-[10px] text-muted-foreground font-bold">{expense.vehicle?.vehicleModel?.brand?.name} {expense.vehicle?.vehicleModel?.name}</p>
                                         </div>
                                     </div>
+                                </TableCell>
+                                <TableCell className="py-6 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                                    {expense.vehicle?.fleetCategory?.name || '—'}
                                 </TableCell>
                                 <TableCell className="py-6 max-w-xs transition-all">
                                     <p className="text-xs font-bold text-muted-foreground uppercase tracking-tight">{expense.description}</p>

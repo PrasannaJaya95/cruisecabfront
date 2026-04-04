@@ -37,6 +37,8 @@ const VehicleRepair = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [repairCategoryFilter, setRepairCategoryFilter] = useState('all');
+    const [fleetCategories, setFleetCategories] = useState([]);
 
     const initialFormState = {
         vehicleId: '',
@@ -53,6 +55,12 @@ const VehicleRepair = () => {
     useEffect(() => {
         fetchRepairs();
         fetchVehicles();
+        (async () => {
+            try {
+                const res = await api.get('/fleet/categories');
+                setFleetCategories(Array.isArray(res.data) ? res.data : []);
+            } catch (e) { console.error(e); }
+        })();
     }, []);
 
     const fetchRepairs = async () => {
@@ -130,10 +138,15 @@ const VehicleRepair = () => {
         }
     };
 
-    const filteredRepairs = repairs.filter(r =>
-        r.vehicle?.licensePlate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.description.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredRepairs = repairs.filter((r) => {
+        const catOk = repairCategoryFilter === 'all' || r.vehicle?.fleetCategoryId === repairCategoryFilter;
+        const q = searchTerm.toLowerCase();
+        const plate = (r.vehicle?.licensePlate || '').toLowerCase();
+        const desc = (r.description || '').toLowerCase();
+        const catName = (r.vehicle?.fleetCategory?.name || '').toLowerCase();
+        const searchOk = !q || plate.includes(q) || desc.includes(q) || catName.includes(q);
+        return catOk && searchOk;
+    });
 
     return (
         <div className="p-8 space-y-8 animate-in fade-in duration-500">
@@ -159,11 +172,24 @@ const VehicleRepair = () => {
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-50" />
                     <input
                         type="text"
-                        placeholder="Search by License Plate or Description..."
+                        placeholder="Search plate, description, category…"
                         className="w-full h-14 pl-12 pr-4 bg-white/50 dark:bg-slate-900/50 backdrop-blur-xl border border-border/50 rounded-2xl text-xs font-bold uppercase tracking-widest text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50 transition-all"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
+                </div>
+                <div>
+                    <Select value={repairCategoryFilter} onValueChange={setRepairCategoryFilter}>
+                        <SelectTrigger className="h-14 rounded-2xl text-xs font-bold uppercase tracking-widest">
+                            <SelectValue placeholder="Category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all" className="text-xs uppercase font-bold">All categories</SelectItem>
+                            {fleetCategories.map((c) => (
+                                <SelectItem key={c.id} value={c.id} className="text-xs uppercase font-bold">{c.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </div>
             </div>
 
@@ -278,6 +304,7 @@ const VehicleRepair = () => {
                                         {vehicles.map(v => (
                                             <SelectItem key={v.id} value={v.id} className="text-xs uppercase font-bold tracking-widest">
                                                 {v.licensePlate} - {v.vehicleModel?.brand?.name} {v.vehicleModel?.name}
+                                                {v.fleetCategory?.name ? ` · ${v.fleetCategory.name}` : ''}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>

@@ -160,6 +160,7 @@ const VehicleManagement = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [brandFilter, setBrandFilter] = useState('all');
+    const [categoryFilter, setCategoryFilter] = useState('all');
     const [groupBy, setGroupBy] = useState('none');
     const [showSuccessDialog, setShowSuccessDialog] = useState(false);
     const [showErrorDialog, setShowErrorDialog] = useState(false);
@@ -169,10 +170,12 @@ const VehicleManagement = () => {
 
     const [brands, setBrands] = useState([]);
     const [models, setModels] = useState([]);
+    const [fleetCategories, setFleetCategories] = useState([]);
     const [vendorsList, setVendorsList] = useState([]);
     const [formData, setFormData] = useState({
         brandId: '',
         modelId: '',
+        fleetCategoryId: '',
         year: '',
         licensePlate: '',
         color: '',
@@ -222,6 +225,13 @@ const VehicleManagement = () => {
         } catch (error) { console.error("Failed to fetch brands", error); }
     };
 
+    const fetchFleetCategories = async () => {
+        try {
+            const { data } = await api.get('/fleet/categories');
+            setFleetCategories(Array.isArray(data) ? data : []);
+        } catch (error) { console.error("Failed to fetch fleet categories", error); }
+    };
+
     const fetchModels = async (brandId) => {
         try {
             const { data } = await api.get(`/fleet/models?brandId=${brandId}`);
@@ -246,6 +256,7 @@ const VehicleManagement = () => {
     useEffect(() => {
         fetchVehicles();
         fetchBrands();
+        fetchFleetCategories();
         fetchVendors();
 
         // Check for status param in URL
@@ -312,14 +323,23 @@ const VehicleManagement = () => {
         const plate = vehicle.licensePlate?.toLowerCase() || '';
         const model = vehicle.vehicleModel?.name?.toLowerCase() || '';
         const brand = vehicle.vehicleModel?.brand?.name?.toLowerCase() || '';
+        const categoryName = vehicle.fleetCategory?.name?.toLowerCase() || '';
         const search = searchQuery.toLowerCase();
 
-        const matchesSearch = plate.includes(search) || model.includes(search) || brand.includes(search);
+        const matchesSearch = !search
+            || plate.includes(search)
+            || model.includes(search)
+            || brand.includes(search)
+            || categoryName.includes(search);
 
         const matchesStatus = statusFilter === 'all' || vehicle.status === statusFilter;
         const matchesBrand = brandFilter === 'all' || vehicle.vehicleModel?.brandId === brandFilter;
+        const matchesCategory =
+            categoryFilter === 'all'
+            || (categoryFilter === '__none__' && !vehicle.fleetCategoryId)
+            || vehicle.fleetCategoryId === categoryFilter;
 
-        return matchesSearch && matchesStatus && matchesBrand;
+        return matchesSearch && matchesStatus && matchesBrand && matchesCategory;
     });
 
     const groupedVehicles = (() => {
@@ -333,6 +353,8 @@ const VehicleManagement = () => {
                 key = vehicle.vehicleModel?.brand?.name || 'Unknown Brand';
             } else if (groupBy === 'status') {
                 key = vehicle.status || 'Unknown Status';
+            } else if (groupBy === 'category') {
+                key = vehicle.fleetCategory?.name || 'Uncategorized';
             }
 
             if (!groups[key]) {
@@ -357,6 +379,7 @@ const VehicleManagement = () => {
         setFormData({
             brandId: vehicle.vehicleModel?.brandId ? vehicle.vehicleModel.brandId.toString() : '',
             modelId: vehicle.modelId ? vehicle.modelId.toString() : '',
+            fleetCategoryId: vehicle.fleetCategoryId ? vehicle.fleetCategoryId.toString() : '',
             year: vehicle.year,
             licensePlate: vehicle.licensePlate,
             vin: vehicle.vin || '',
@@ -405,6 +428,7 @@ const VehicleManagement = () => {
                 insuranceBack: null,
                 modelId: '',
                 brandId: '',
+                fleetCategoryId: '',
                 year: '',
                 licensePlate: '',
                 vin: '',
@@ -498,6 +522,11 @@ const VehicleManagement = () => {
 
         if (!formData.brandId || !formData.modelId) {
             triggerError("Please select both Brand and Model.");
+            return;
+        }
+
+        if (!formData.fleetCategoryId) {
+            triggerError("Please select a fleet category.");
             return;
         }
 
@@ -621,6 +650,7 @@ const VehicleManagement = () => {
                 setSearchQuery('');
                 setStatusFilter('all');
                 setBrandFilter('all');
+                setCategoryFilter('all');
                 setGroupBy('none');
             }
 
@@ -783,6 +813,19 @@ const VehicleManagement = () => {
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label>Fleet category *</Label>
+                                                <Select onValueChange={(val) => handleSelectChange('fleetCategoryId', val)} value={formData.fleetCategoryId || undefined}>
+                                                    <SelectTrigger><SelectValue placeholder={fleetCategories.length ? 'Select category' : 'Create categories under Fleet → Fleet Categories'} /></SelectTrigger>
+                                                    <SelectContent>
+                                                        {fleetCategories.map((c) => (
+                                                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                                <p className="text-[10px] text-muted-foreground font-medium">Car, SUV, Luxury, VIP, VVIP, etc.</p>
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-4">
@@ -1118,13 +1161,13 @@ const VehicleManagement = () => {
                 <div className="relative flex-1 min-w-[300px]">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                     <Input
-                        placeholder="Search by Plate, Model or Brand..."
+                        placeholder="Search by plate, model, brand, or category..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="pl-12 bg-secondary/50 border-border rounded-2xl h-12 text-sm font-medium focus:ring-4 focus:ring-primary/5 transition-all"
                     />
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                         <SelectTrigger className="w-44 bg-secondary/50 border-border h-12 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-secondary">
                             <div className="flex items-center gap-2">
@@ -1149,6 +1192,31 @@ const VehicleManagement = () => {
                             {brands.map(b => <SelectItem key={b.id} value={b.id.toString()}>{b.name}</SelectItem>)}
                         </SelectContent>
                     </Select>
+
+                    <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                        <SelectTrigger className="w-48 bg-secondary/50 border-border h-12 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-secondary">
+                            <SelectValue placeholder="Category" />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl border-border">
+                            <SelectItem value="all">Every Category</SelectItem>
+                            <SelectItem value="__none__">Uncategorized</SelectItem>
+                            {fleetCategories.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
+                    <Select value={groupBy} onValueChange={setGroupBy}>
+                        <SelectTrigger className="w-44 bg-secondary/50 border-border h-12 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:bg-secondary">
+                            <SelectValue placeholder="Group by" />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl border-border">
+                            <SelectItem value="none">Flat list</SelectItem>
+                            <SelectItem value="brand">Group by brand</SelectItem>
+                            <SelectItem value="status">Group by status</SelectItem>
+                            <SelectItem value="category">Group by category</SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
             </div>
 
@@ -1169,6 +1237,7 @@ const VehicleManagement = () => {
                                         <TableHead className="font-black text-[10px] uppercase tracking-widest text-muted-foreground py-6 pl-8">Vehicle Image</TableHead>
                                         <TableHead className="font-black text-[10px] uppercase tracking-widest text-muted-foreground py-6">Plate Number</TableHead>
                                         <TableHead className="font-black text-[10px] uppercase tracking-widest text-muted-foreground py-6">Model/Brand</TableHead>
+                                        <TableHead className="font-black text-[10px] uppercase tracking-widest text-muted-foreground py-6">Category</TableHead>
                                         <TableHead className="font-black text-[10px] uppercase tracking-widest text-muted-foreground py-6">Daily Rates (LKR)</TableHead>
                                         <TableHead className="font-black text-[10px] uppercase tracking-widest text-muted-foreground py-6">Status</TableHead>
                                         <TableHead className="font-black text-[10px] uppercase tracking-widest text-muted-foreground py-6 text-right pr-8">Actions</TableHead>
@@ -1177,7 +1246,7 @@ const VehicleManagement = () => {
                                 <TableBody>
                                     {groupVehicles.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={6} className="h-32 text-center text-muted-foreground font-black uppercase tracking-widest text-xs">No Vehicles Found</TableCell>
+                                            <TableCell colSpan={7} className="h-32 text-center text-muted-foreground font-black uppercase tracking-widest text-xs">No Vehicles Found</TableCell>
                                         </TableRow>
                                     ) : (
                                         groupVehicles.map(vehicle => (
@@ -1205,6 +1274,15 @@ const VehicleManagement = () => {
                                                         <p className="font-black text-foreground">{vehicle.vehicleModel?.brand?.name}</p>
                                                         <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest mt-1">{vehicle.vehicleModel?.name}</p>
                                                     </div>
+                                                </TableCell>
+                                                <TableCell className="py-6">
+                                                    {vehicle.fleetCategory?.name ? (
+                                                        <Badge variant="outline" className="font-black text-[9px] uppercase tracking-widest border-primary/20 bg-primary/5 text-primary">
+                                                            {vehicle.fleetCategory.name}
+                                                        </Badge>
+                                                    ) : (
+                                                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">—</span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className="font-black text-primary py-6">
                                                     <div className="flex flex-col gap-1">

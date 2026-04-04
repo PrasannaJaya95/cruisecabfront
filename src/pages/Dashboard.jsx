@@ -5,7 +5,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import axios from 'axios';
+import api from '../lib/api';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
@@ -115,10 +115,12 @@ const Dashboard = () => {
     useEffect(() => {
         const fetchContracts = async () => {
             try {
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/contracts`);
-                setContracts(res.data);
+                const res = await api.get('/contracts');
+                const data = res.data;
+                setContracts(Array.isArray(data) ? data : []);
             } catch (err) {
                 console.error("Failed to fetch contracts", err);
+                setContracts([]);
             } finally {
                 setLoading(false);
             }
@@ -126,10 +128,12 @@ const Dashboard = () => {
 
         const fetchVehicles = async () => {
             try {
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/vehicles`);
-                setVehicles(res.data);
+                const res = await api.get('/vehicles');
+                const data = res.data;
+                setVehicles(Array.isArray(data) ? data : []);
             } catch (err) {
                 console.error("Failed to fetch vehicles", err);
+                setVehicles([]);
             }
         };
 

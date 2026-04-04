@@ -28,7 +28,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
-import { Plus, User, Trash2, Pencil, FileText, Upload, Save, Send, Building2, Globe, CheckCircle, Search, Filter, Coins } from 'lucide-react';
+import { Plus, User, Trash2, Pencil, FileText, Upload, Save, Send, Building2, Globe, CheckCircle, Search, Filter, Coins, Archive, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card } from "@/components/ui/card";
 import CustomerWizard from '@/components/CustomerWizard';
@@ -45,6 +45,11 @@ const CustomerManagement = () => {
     // Approval Wizard State
     const [approvalWizardOpen, setApprovalWizardOpen] = useState(false);
     const [customerToApprove, setCustomerToApprove] = useState(null);
+
+    const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+    const [customerToArchive, setCustomerToArchive] = useState(null);
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [customerToDelete, setCustomerToDelete] = useState(null);
 
     // Success Wizard State
     const [showSuccessWizard, setShowSuccessWizard] = useState(false);
@@ -63,10 +68,12 @@ const CustomerManagement = () => {
         address: '',
         phone: '',
         mobile: '',
+        description: '',
 
         // Local/Foreign specific
         name: '',
         nicOrPassport: '', // Local
+        drivingLicenseNo: '',
         passportNo: '', // Foreign
 
         // Corporate specific
@@ -78,6 +85,15 @@ const CustomerManagement = () => {
         // Relations (Local)
         closeRelationName: '',
         closeRelationMobile: '',
+
+        doc1Url: '',
+        doc2Url: '',
+        utilityBillUrl: '',
+        drivingLicenseFrontUrl: '',
+        drivingLicenseBackUrl: '',
+        intlDrivingLicenseFrontUrl: '',
+        intlDrivingLicenseBackUrl: '',
+        aaPermitUrl: '',
     });
 
     const [files, setFiles] = useState({
@@ -91,7 +107,7 @@ const CustomerManagement = () => {
     const fetchCustomers = async () => {
         try {
             const { data } = await api.get('/clients');
-            setCustomers(data);
+            setCustomers(Array.isArray(data) ? data : []);
         } catch (error) {
             console.error('Failed to fetch customers', error);
         } finally {
@@ -102,6 +118,14 @@ const CustomerManagement = () => {
     useEffect(() => {
         fetchCustomers();
     }, []);
+
+    const canApproveCustomers =
+        user?.role === 'SUPER_ADMIN' ||
+        user?.role === 'ADMIN' ||
+        user?.permissionGroup?.permissions?.includes('CUSTOMER_CONFIRM');
+
+    const canArchiveOrDeleteCustomer =
+        user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN';
 
     const handleInputChange = (e) => {
         const { id, value } = e.target;
@@ -114,10 +138,12 @@ const CustomerManagement = () => {
 
     const resetForm = () => {
         setFormData({
-            email: '', address: '', phone: '', mobile: '',
-            name: '', nicOrPassport: '', passportNo: '',
+            email: '', address: '', phone: '', mobile: '', description: '',
+            name: '', nicOrPassport: '', drivingLicenseNo: '', passportNo: '',
             companyName: '', brNumber: '', contactPersonName: '', contactPersonMobile: '',
-            closeRelationName: '', closeRelationMobile: ''
+            closeRelationName: '', closeRelationMobile: '',
+            doc1Url: '', doc2Url: '', utilityBillUrl: '', drivingLicenseFrontUrl: '', drivingLicenseBackUrl: '',
+            intlDrivingLicenseFrontUrl: '', intlDrivingLicenseBackUrl: '', aaPermitUrl: '',
         });
         setFiles({ doc1: null, doc2: null, utilityBill: null, support1: null, support2: null });
         setCustomerType('local');
@@ -139,15 +165,25 @@ const CustomerManagement = () => {
             address: customer.address || '',
             phone: customer.phone || '',
             mobile: customer.mobile || '',
+            description: customer.description || '',
             name: customer.name || '',
             nicOrPassport: customer.nicOrPassport || '',
+            drivingLicenseNo: customer.drivingLicenseNo || '',
             passportNo: customer.passportNo || '',
             companyName: customer.companyName || '',
             brNumber: customer.brNumber || '',
             contactPersonName: customer.contactPersonName || '',
             contactPersonMobile: customer.contactPersonMobile || '',
             closeRelationName: customer.closeRelationName || '',
-            closeRelationMobile: customer.closeRelationMobile || ''
+            closeRelationMobile: customer.closeRelationMobile || '',
+            doc1Url: customer.doc1Url || '',
+            doc2Url: customer.doc2Url || '',
+            utilityBillUrl: customer.utilityBillUrl || '',
+            drivingLicenseFrontUrl: customer.drivingLicenseFrontUrl || '',
+            drivingLicenseBackUrl: customer.drivingLicenseBackUrl || '',
+            intlDrivingLicenseFrontUrl: customer.intlDrivingLicenseFrontUrl || '',
+            intlDrivingLicenseBackUrl: customer.intlDrivingLicenseBackUrl || '',
+            aaPermitUrl: customer.aaPermitUrl || '',
         });
         setOpen(true);
     };
@@ -272,6 +308,68 @@ const CustomerManagement = () => {
         }
     };
 
+    const handleArchiveClick = (customer) => {
+        setCustomerToArchive(customer);
+        setArchiveDialogOpen(true);
+    };
+
+    const confirmArchive = async () => {
+        if (!customerToArchive) return;
+        try {
+            await api.post(`/clients/${customerToArchive.id}/archive`);
+            setArchiveDialogOpen(false);
+            setCustomerToArchive(null);
+            fetchCustomers();
+            setSuccessMessage({
+                title: 'Customer archived',
+                message: 'This customer is now archived and hidden from active lists.',
+            });
+            setShowSuccessWizard(true);
+        } catch (error) {
+            console.error('Archive error:', error);
+            alert(error.response?.data?.message || 'Failed to archive customer.');
+        }
+    };
+
+    const handleUnarchive = async (customer) => {
+        if (!window.confirm(`Restore "${customer.name || customer.companyName || customer.code}" to active customers (status: Confirmed)?`)) return;
+        try {
+            await api.post(`/clients/${customer.id}/unarchive`, { status: 'CONFIRMED' });
+            fetchCustomers();
+            setSuccessMessage({
+                title: 'Customer restored',
+                message: 'The customer has been unarchived and set to Confirmed.',
+            });
+            setShowSuccessWizard(true);
+        } catch (error) {
+            console.error('Unarchive error:', error);
+            alert(error.response?.data?.message || 'Failed to restore customer.');
+        }
+    };
+
+    const handleDeleteClick = (customer) => {
+        setCustomerToDelete(customer);
+        setDeleteDialogOpen(true);
+    };
+
+    const confirmDeleteArchived = async () => {
+        if (!customerToDelete) return;
+        try {
+            await api.delete(`/clients/${customerToDelete.id}`);
+            setDeleteDialogOpen(false);
+            setCustomerToDelete(null);
+            fetchCustomers();
+            setSuccessMessage({
+                title: 'Customer deleted',
+                message: 'The archived customer record has been permanently removed.',
+            });
+            setShowSuccessWizard(true);
+        } catch (error) {
+            console.error('Delete error:', error);
+            alert(error.response?.data?.message || 'Failed to delete customer.');
+        }
+    };
+
     const validateForm = () => {
         // Implementation of mandatory field check based on type
         // For Draft, maybe less strict? For Submit, strict.
@@ -279,11 +377,11 @@ const CustomerManagement = () => {
         const required = [];
 
         if (customerType === 'local') {
-            required.push('name', 'phone', 'mobile', 'email', 'address', 'nicOrPassport', 'closeRelationName', 'closeRelationMobile');
+            required.push('name', 'phone', 'mobile', 'address', 'nicOrPassport', 'drivingLicenseNo');
         } else if (customerType === 'foreign') {
-            required.push('name', 'phone', 'mobile', 'email', 'address', 'passportNo');
+            required.push('name', 'phone', 'mobile', 'address', 'passportNo');
         } else if (customerType === 'corporate') {
-            required.push('companyName', 'phone', 'mobile', 'email', 'address', 'brNumber', 'contactPersonName', 'contactPersonMobile');
+            required.push('companyName', 'phone', 'mobile', 'address', 'brNumber', 'contactPersonName', 'contactPersonMobile');
         }
 
         const missing = required.filter(field => !formData[field]);
@@ -315,6 +413,7 @@ const CustomerManagement = () => {
                         onSubmit={handleWizardSubmit}
                         initialData={editingId ? formData : null}
                         isReadOnly={isReadOnly}
+                        editingCustomerId={editingId}
                     />
                 </Dialog>
             </div>
@@ -344,6 +443,7 @@ const CustomerManagement = () => {
                             <SelectItem value="PENDING_APPROVAL">Pending Approval</SelectItem>
                             <SelectItem value="CONFIRMED">Confirmed</SelectItem>
                             <SelectItem value="DRAFT">Draft</SelectItem>
+                            <SelectItem value="ARCHIVED">Archived</SelectItem>
                         </SelectContent>
                     </Select>
 
@@ -415,7 +515,7 @@ const CustomerManagement = () => {
                                                         {customer.type === 'CORPORATE' ? customer.companyName : customer.name}
                                                     </p>
                                                     <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest mt-0.5">
-                                                        {customer.email}
+                                                        {customer.email || '—'}
                                                     </p>
                                                 </div>
                                             </div>
@@ -435,6 +535,7 @@ const CustomerManagement = () => {
                                             <span className={cn("px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border shadow-sm",
                                                 customer.status === 'CONFIRMED' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
                                                     customer.status === 'PENDING_APPROVAL' ? "bg-amber-50 text-amber-600 border-amber-100" :
+                                                        customer.status === 'ARCHIVED' ? "bg-slate-100 text-slate-600 border-slate-200" :
                                                         "bg-secondary text-muted-foreground border-border"
                                             )}>
                                                 {customer.status ? customer.status.replace('_', ' ') : 'DRAFT'}
@@ -442,8 +543,7 @@ const CustomerManagement = () => {
                                         </TableCell>
                                         <TableCell className="text-right py-6 pr-8">
                                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {customer.status === 'PENDING_APPROVAL' && (
-                                                    (user?.permissionGroup?.permissions?.includes('CUSTOMER_CONFIRM') || user?.role === 'SUPER_ADMIN') && (
+                                                {customer.status === 'PENDING_APPROVAL' && canApproveCustomers && (
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
@@ -453,16 +553,50 @@ const CustomerManagement = () => {
                                                         >
                                                             <CheckCircle className="h-4 w-4" />
                                                         </Button>
-                                                    )
                                                 )}
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-9 w-9 bg-primary/5 hover:bg-primary text-primary hover:text-white rounded-xl transition-all"
-                                                    onClick={() => handleEdit(customer)}
-                                                >
-                                                    <Pencil className="h-4 w-4" />
-                                                </Button>
+                                                {customer.status !== 'ARCHIVED' && canArchiveOrDeleteCustomer && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-9 w-9 bg-slate-500/5 hover:bg-slate-600 text-slate-600 hover:text-white rounded-xl transition-all"
+                                                        onClick={() => handleArchiveClick(customer)}
+                                                        title="Archive customer"
+                                                    >
+                                                        <Archive className="h-4 w-4" />
+                                                    </Button>
+                                                )}
+                                                {customer.status === 'ARCHIVED' && canArchiveOrDeleteCustomer && (
+                                                    <>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-9 w-9 bg-blue-500/5 hover:bg-blue-600 text-blue-600 hover:text-white rounded-xl transition-all"
+                                                            onClick={() => handleUnarchive(customer)}
+                                                            title="Restore customer"
+                                                        >
+                                                            <Undo2 className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-9 w-9 bg-red-500/5 hover:bg-red-600 text-red-600 hover:text-white rounded-xl transition-all"
+                                                            onClick={() => handleDeleteClick(customer)}
+                                                            title="Permanently delete archived customer"
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                    </>
+                                                )}
+                                                {customer.status !== 'ARCHIVED' && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-9 w-9 bg-primary/5 hover:bg-primary text-primary hover:text-white rounded-xl transition-all"
+                                                        onClick={() => handleEdit(customer)}
+                                                    >
+                                                        <Pencil className="h-4 w-4" />
+                                                    </Button>
+                                                )}
                                             </div>
                                         </TableCell>
                                     </TableRow>
@@ -473,6 +607,50 @@ const CustomerManagement = () => {
             </Card>
 
             {/* Approval Wizard Dialog */}
+            <Dialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
+                <DialogContent className="sm:max-w-md bg-card border-border rounded-[2.5rem] shadow-2xl p-10">
+                    <DialogHeader>
+                        <DialogTitle className="text-2xl font-black tracking-tight">Archive customer?</DialogTitle>
+                        <DialogDescription className="text-muted-foreground font-medium">
+                            Archived customers are excluded from active operations. Only Super Admin and Admin can archive or delete.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {customerToArchive && (
+                        <p className="text-sm font-bold text-foreground py-2">
+                            {customerToArchive.name || customerToArchive.companyName} <span className="text-primary font-mono">{customerToArchive.code}</span>
+                        </p>
+                    )}
+                    <DialogFooter className="gap-3">
+                        <Button variant="ghost" onClick={() => setArchiveDialogOpen(false)} className="rounded-xl">Cancel</Button>
+                        <Button onClick={confirmArchive} className="bg-slate-700 hover:bg-slate-800 text-white rounded-xl font-black uppercase text-[10px]">
+                            Archive
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <DialogContent className="sm:max-w-md bg-card border-border rounded-[2.5rem] shadow-2xl p-10">
+                    <DialogHeader>
+                        <DialogTitle className="text-2xl font-black tracking-tight text-red-600">Delete permanently?</DialogTitle>
+                        <DialogDescription className="text-muted-foreground font-medium">
+                            This removes the customer record from the database. This cannot be undone. Only archived customers can be deleted.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {customerToDelete && (
+                        <p className="text-sm font-bold text-foreground py-2">
+                            {customerToDelete.name || customerToDelete.companyName} <span className="text-primary font-mono">{customerToDelete.code}</span>
+                        </p>
+                    )}
+                    <DialogFooter className="gap-3">
+                        <Button variant="ghost" onClick={() => setDeleteDialogOpen(false)} className="rounded-xl">Cancel</Button>
+                        <Button onClick={confirmDeleteArchived} className="bg-red-600 hover:bg-red-700 text-white rounded-xl font-black uppercase text-[10px]">
+                            Delete forever
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={approvalWizardOpen} onOpenChange={setApprovalWizardOpen}>
                 <DialogContent className="sm:max-w-md bg-card border-border rounded-[2.5rem] shadow-2xl p-10 flex flex-col items-center text-center overflow-hidden">
                     <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mb-6">

@@ -132,7 +132,7 @@ export default function PLReports() {
                     <h1 className="text-4xl font-black tracking-tighter text-foreground uppercase tracking-widest">Financial Analytics</h1>
                     <p className="text-muted-foreground font-medium mt-1">Vehicle Profit & Loss performance tracking.</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 print:hidden">
                     <Button variant="outline" onClick={downloadPDF} className="rounded-xl font-black text-[10px] uppercase tracking-widest border-primary/20 hover:bg-primary/5">
                         <FileText className="w-4 h-4 mr-2" /> PDF Report
                     </Button>
@@ -143,7 +143,7 @@ export default function PLReports() {
             </div>
 
             {/* Filters */}
-            <Card className="bg-card/50 backdrop-blur-md border-border rounded-[2.5rem] shadow-sm overflow-hidden">
+            <Card className="bg-card/50 backdrop-blur-md border-border rounded-[2.5rem] shadow-sm overflow-hidden print:hidden">
                 <CardContent className="p-8">
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
                         <div className="space-y-2">

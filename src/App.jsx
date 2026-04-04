@@ -16,6 +16,7 @@ import VendorManagement from './pages/VendorManagement';
 import UserManagement from './pages/UserManagement';
 import VehicleBrandManagement from './pages/VehicleBrandManagement';
 import VehicleModelManagement from './pages/VehicleModelManagement';
+import FleetCategoryManagement from './pages/FleetCategoryManagement';
 import VehicleRepair from './pages/VehicleRepair';
 import VehicleExpenses from './pages/VehicleExpenses';
 import OdometerManagement from './pages/OdometerManagement';
@@ -110,6 +111,7 @@ function App() {
               {/* Admin/Staff Routes */}
               <Route element={<RoleProtectedRoute allowedRoles={['ADMIN', 'STAFF']} />}>
                 <Route path="/vehicles" element={<VehicleManagement />} />
+                <Route path="/fleet/categories" element={<FleetCategoryManagement />} />
                 <Route path="/fleet/brands" element={<VehicleBrandManagement />} />
                 <Route path="/fleet/models" element={<VehicleModelManagement />} />
                 <Route path="/fleet/repairs" element={<VehicleRepair />} />

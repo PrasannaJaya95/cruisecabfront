@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
     Table,
@@ -11,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { format, subDays, startOfDay, endOfDay } from "date-fns";
+import { format, startOfDay, addDays } from "date-fns";
 import {
     Receipt,
     CheckCircle,
@@ -57,11 +58,25 @@ const months = [
     "July", "August", "September", "October", "November", "December"
 ];
 
+function formatBillPeriodLabel(bill) {
+    if (bill.billingType === 'SHORT_TERM' && bill.billingFrom && bill.billingTo) {
+        const a = new Date(bill.billingFrom);
+        const b = new Date(bill.billingTo);
+        return `${format(a, 'MMM d')} – ${format(b, 'MMM d, yyyy')}`;
+    }
+    return `${months[(bill.month || 1) - 1]} ${bill.year}`;
+}
+
 export default function VendorBills() {
+    const { user } = useAuth();
     const [bills, setBills] = useState([]);
     const [vendors, setVendors] = useState([]);
     const [vehicles, setVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [deletingId, setDeletingId] = useState(null);
+
+    const canDeletePendingVendorBill = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+    const canDeletePaidVendorBill = user?.role === 'SUPER_ADMIN';
 
     // Filtering State
     const [filters, setFilters] = useState({
@@ -76,8 +91,11 @@ export default function VendorBills() {
     const [wizardData, setWizardData] = useState({
         vendorId: '',
         vehicleId: '',
+        billingType: 'LONG_TERM',
         month: (new Date().getMonth() + 1).toString(),
         year: new Date().getFullYear().toString(),
+        billingFrom: startOfDay(new Date()),
+        billingTo: startOfDay(addDays(new Date(), 6)),
         description: '',
         monthlyPayment: '',
         items: [{ description: '', amount: '' }]
@@ -91,8 +109,11 @@ export default function VendorBills() {
     const handleViewBill = (bill) => {
         setSelectedBill(bill);
         setEditData({
+            billingType: bill.billingType === 'SHORT_TERM' ? 'SHORT_TERM' : 'LONG_TERM',
             month: bill.month.toString(),
             year: bill.year.toString(),
+            billingFrom: bill.billingFrom ? new Date(bill.billingFrom) : startOfDay(new Date()),
+            billingTo: bill.billingTo ? new Date(bill.billingTo) : startOfDay(addDays(new Date(), 6)),
             monthlyPayment: bill.monthlyPayment.toString(),
             description: bill.description || '',
             items: bill.items.map(item => ({ ...item, amount: item.amount.toString() }))
@@ -167,16 +188,55 @@ export default function VendorBills() {
         setWizardData({ ...wizardData, items: newItems });
     };
 
+    const buildWizardPayload = () => {
+        const base = {
+            vendorId: wizardData.vendorId,
+            vehicleId: wizardData.vehicleId,
+            description: wizardData.description,
+            monthlyPayment: wizardData.monthlyPayment,
+            items: wizardData.items.map((item) => ({
+                description: item.description,
+                amount: parseFloat(item.amount) || 0,
+            })),
+            billingType: wizardData.billingType,
+        };
+        if (wizardData.billingType === 'SHORT_TERM') {
+            return {
+                ...base,
+                billingFrom: format(wizardData.billingFrom, 'yyyy-MM-dd'),
+                billingTo: format(wizardData.billingTo, 'yyyy-MM-dd'),
+            };
+        }
+        return {
+            ...base,
+            month: wizardData.month,
+            year: wizardData.year,
+        };
+    };
+
     const handleSubmitWizard = async () => {
+        if (wizardData.billingType === 'SHORT_TERM') {
+            if (!wizardData.billingFrom || !wizardData.billingTo) {
+                alert('Please select billing from and to dates.');
+                return;
+            }
+            if (startOfDay(wizardData.billingFrom) > startOfDay(wizardData.billingTo)) {
+                alert('Billing from must be on or before billing to.');
+                return;
+            }
+        }
         try {
             setLoading(true);
-            await api.post('/vendor-bills', wizardData);
+            await api.post('/vendor-bills', buildWizardPayload());
             setIsWizardOpen(false);
             setWizardData({
                 vendorId: '',
                 vehicleId: '',
+                billingType: 'LONG_TERM',
                 month: (new Date().getMonth() + 1).toString(),
                 year: new Date().getFullYear().toString(),
+                billingFrom: startOfDay(new Date()),
+                billingTo: startOfDay(addDays(new Date(), 6)),
                 description: '',
                 monthlyPayment: '',
                 items: [{ description: '', amount: '' }]
@@ -190,10 +250,44 @@ export default function VendorBills() {
         }
     };
 
+    const buildEditPayload = () => {
+        const base = {
+            monthlyPayment: editData.monthlyPayment,
+            description: editData.description,
+            items: editData.items.map((item) => ({
+                description: item.description,
+                amount: parseFloat(item.amount) || 0,
+            })),
+            billingType: editData.billingType,
+        };
+        if (editData.billingType === 'SHORT_TERM') {
+            return {
+                ...base,
+                billingFrom: format(editData.billingFrom, 'yyyy-MM-dd'),
+                billingTo: format(editData.billingTo, 'yyyy-MM-dd'),
+            };
+        }
+        return {
+            ...base,
+            month: editData.month,
+            year: editData.year,
+        };
+    };
+
     const handleUpdateBill = async () => {
+        if (editData.billingType === 'SHORT_TERM') {
+            if (!editData.billingFrom || !editData.billingTo) {
+                alert('Please select billing from and to dates.');
+                return;
+            }
+            if (startOfDay(editData.billingFrom) > startOfDay(editData.billingTo)) {
+                alert('Billing from must be on or before billing to.');
+                return;
+            }
+        }
         try {
             setLoading(true);
-            const { data } = await api.put(`/vendor-bills/${selectedBill.id}`, editData);
+            const { data } = await api.put(`/vendor-bills/${selectedBill.id}`, buildEditPayload());
             setBills(prev => prev.map(b => b.id === data.id ? data : b));
             setIsViewOpen(false);
         } catch (error) {
@@ -210,6 +304,39 @@ export default function VendorBills() {
             fetchBills();
         } catch (error) {
             console.error("Failed to update status", error);
+        }
+    };
+
+    const canUserDeleteBill = (bill) => {
+        const st = String(bill.status || '').toUpperCase();
+        if (st === 'PENDING') return canDeletePendingVendorBill;
+        if (st === 'PAID') return canDeletePaidVendorBill;
+        return canDeletePaidVendorBill;
+    };
+
+    const deleteVendorBill = async (bill) => {
+        if (!canUserDeleteBill(bill)) return;
+        const isPaid = String(bill.status || '').toUpperCase() === 'PAID';
+        const ref = bill.billNumber || bill.id;
+        const msg = isPaid
+            ? `Delete PAID vendor bill ${ref}? Only Super Admins may do this. Linked repair/expense rows will be unlinked from this bill. This cannot be undone.`
+            : `Delete vendor bill ${ref}? This cannot be undone. Linked repair/expense rows will be unlinked from this bill.`;
+        if (!window.confirm(msg)) return;
+        try {
+            setDeletingId(bill.id);
+            await api.delete(`/vendor-bills/${bill.id}`);
+            setBills((prev) => prev.filter((b) => b.id !== bill.id));
+            if (selectedBill?.id === bill.id) {
+                setIsViewOpen(false);
+                setSelectedBill(null);
+                setEditData(null);
+            }
+            fetchBills();
+        } catch (error) {
+            console.error('Failed to delete vendor bill', error);
+            alert(error.response?.data?.message || 'Failed to delete vendor bill');
+        } finally {
+            setDeletingId(null);
         }
     };
 
@@ -263,39 +390,158 @@ export default function VendorBills() {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-3 gap-4">
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Billing Month</Label>
-                                        <Select value={wizardData.month} onValueChange={(val) => setWizardData({ ...wizardData, month: val })}>
-                                            <SelectTrigger className="h-12 bg-secondary/50 border-none rounded-xl">
-                                                <SelectValue placeholder="Month" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {months.map((m, i) => (
-                                                    <SelectItem key={i + 1} value={(i + 1).toString()}>{m}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                <div className="space-y-3">
+                                    <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Billing type</Label>
+                                    <div className="flex flex-wrap gap-2 p-1 bg-secondary/30 rounded-2xl border border-border/50">
+                                        {[
+                                            { id: 'LONG_TERM', label: 'Long term', hint: 'Full calendar month' },
+                                            { id: 'SHORT_TERM', label: 'Short term', hint: 'Custom date range' },
+                                        ].map((opt) => (
+                                            <button
+                                                key={opt.id}
+                                                type="button"
+                                                onClick={() =>
+                                                    setWizardData({
+                                                        ...wizardData,
+                                                        billingType: opt.id,
+                                                    })
+                                                }
+                                                className={cn(
+                                                    'flex-1 min-w-[140px] text-left rounded-xl px-4 py-3 transition-all border',
+                                                    wizardData.billingType === opt.id
+                                                        ? 'bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20'
+                                                        : 'bg-transparent border-transparent hover:bg-background/80 text-muted-foreground'
+                                                )}
+                                            >
+                                                <span className="block text-xs font-black uppercase tracking-widest">{opt.label}</span>
+                                                <span
+                                                    className={cn(
+                                                        'block text-[10px] font-medium mt-0.5',
+                                                        wizardData.billingType === opt.id ? 'text-primary-foreground/80' : 'opacity-70'
+                                                    )}
+                                                >
+                                                    {opt.hint}
+                                                </span>
+                                            </button>
+                                        ))}
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Year</Label>
-                                        <Input
-                                            type="number"
-                                            value={wizardData.year}
-                                            onChange={(e) => setWizardData({ ...wizardData, year: e.target.value })}
-                                            className="h-12 bg-secondary/50 border-none rounded-xl font-bold"
-                                        />
+                                </div>
+
+                                {wizardData.billingType === 'LONG_TERM' ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Billing month</Label>
+                                            <Select value={wizardData.month} onValueChange={(val) => setWizardData({ ...wizardData, month: val })}>
+                                                <SelectTrigger className="h-12 bg-secondary/50 border-none rounded-xl">
+                                                    <SelectValue placeholder="Month" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {months.map((m, i) => (
+                                                        <SelectItem key={i + 1} value={(i + 1).toString()}>{m}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Year</Label>
+                                            <Input
+                                                type="number"
+                                                value={wizardData.year}
+                                                onChange={(e) => setWizardData({ ...wizardData, year: e.target.value })}
+                                                className="h-12 bg-secondary/50 border-none rounded-xl font-bold"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Base monthly rate</Label>
+                                            <Input
+                                                type="number"
+                                                placeholder="Optional"
+                                                value={wizardData.monthlyPayment}
+                                                onChange={(e) => setWizardData({ ...wizardData, monthlyPayment: e.target.value })}
+                                                className="h-12 bg-secondary/50 border-none rounded-xl font-bold"
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Base Monthly Rate</Label>
-                                        <Input
-                                            type="number"
-                                            placeholder="Optional"
-                                            value={wizardData.monthlyPayment}
-                                            onChange={(e) => setWizardData({ ...wizardData, monthlyPayment: e.target.value })}
-                                            className="h-12 bg-secondary/50 border-none rounded-xl font-bold"
-                                        />
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Billing from</Label>
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            className="w-full h-12 justify-start font-bold rounded-xl border-border/60 bg-secondary/50"
+                                                        >
+                                                            <CalendarIcon className="mr-2 h-4 w-4 opacity-60" />
+                                                            {wizardData.billingFrom ? format(wizardData.billingFrom, 'PPP') : 'Pick date'}
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-auto p-0 rounded-2xl overflow-hidden" align="start">
+                                                        <Calendar
+                                                            mode="single"
+                                                            selected={wizardData.billingFrom}
+                                                            onSelect={(d) => d && setWizardData({ ...wizardData, billingFrom: startOfDay(d) })}
+                                                            initialFocus
+                                                        />
+                                                    </PopoverContent>
+                                                </Popover>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Billing to</Label>
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            className="w-full h-12 justify-start font-bold rounded-xl border-border/60 bg-secondary/50"
+                                                        >
+                                                            <CalendarIcon className="mr-2 h-4 w-4 opacity-60" />
+                                                            {wizardData.billingTo ? format(wizardData.billingTo, 'PPP') : 'Pick date'}
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-auto p-0 rounded-2xl overflow-hidden" align="start">
+                                                        <Calendar
+                                                            mode="single"
+                                                            selected={wizardData.billingTo}
+                                                            onSelect={(d) => d && setWizardData({ ...wizardData, billingTo: startOfDay(d) })}
+                                                            initialFocus
+                                                            disabled={(date) =>
+                                                                wizardData.billingFrom
+                                                                    ? startOfDay(date) < startOfDay(wizardData.billingFrom)
+                                                                    : false
+                                                            }
+                                                        />
+                                                    </PopoverContent>
+                                                </Popover>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest opacity-60">Reference rate (optional)</Label>
+                                            <Input
+                                                type="number"
+                                                placeholder="Optional — for your records"
+                                                value={wizardData.monthlyPayment}
+                                                onChange={(e) => setWizardData({ ...wizardData, monthlyPayment: e.target.value })}
+                                                className="h-12 bg-secondary/50 border-none rounded-xl font-bold max-w-md"
+                                            />
+                                        </div>
                                     </div>
+                                )}
+
+                                <div className="rounded-2xl border border-dashed border-primary/25 bg-primary/[0.04] px-4 py-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-1">Period preview</p>
+                                    <p className="text-sm font-black text-foreground">
+                                        {wizardData.billingType === 'SHORT_TERM' && wizardData.billingFrom && wizardData.billingTo
+                                            ? `${format(wizardData.billingFrom, 'MMM d, yyyy')} → ${format(wizardData.billingTo, 'MMM d, yyyy')}`
+                                            : `${months[parseInt(wizardData.month, 10) - 1] || ''} ${wizardData.year}`}
+                                    </p>
+                                    {wizardData.billingType === 'SHORT_TERM' && (
+                                        <p className="text-[10px] text-muted-foreground mt-1 font-medium">
+                                            Short-term bills use your selected range; month/year stored for reporting use the start date.
+                                        </p>
+                                    )}
                                 </div>
 
                                 <div className="space-y-4">
@@ -363,7 +609,14 @@ export default function VendorBills() {
                                 <Button variant="outline" onClick={() => setIsWizardOpen(false)} className="rounded-xl font-bold uppercase tracking-widest text-[10px] h-12 flex-1">Cancel</Button>
                                 <Button
                                     onClick={handleSubmitWizard}
-                                    disabled={!wizardData.vendorId || !wizardData.vehicleId || wizardData.items.some(i => !i.description || !i.amount) || loading}
+                                    disabled={
+                                        !wizardData.vendorId ||
+                                        !wizardData.vehicleId ||
+                                        wizardData.items.some((i) => !i.description || !i.amount) ||
+                                        loading ||
+                                        (wizardData.billingType === 'SHORT_TERM' &&
+                                            (!wizardData.billingFrom || !wizardData.billingTo))
+                                    }
                                     className="bg-primary text-white font-black uppercase tracking-widest h-12 rounded-xl flex-[2]"
                                 >
                                     {loading ? 'Submitting...' : 'Generate & Save Bill'}
@@ -495,7 +748,14 @@ export default function VendorBills() {
                                     <TableCell className="py-6 pl-8">
                                         <div className="flex flex-col">
                                             <span className="font-black text-primary tracking-tighter text-sm uppercase">{bill.billNumber || 'UNASSIGNED'}</span>
-                                            <span className="text-[10px] font-bold text-muted-foreground uppercase mt-0.5">{months[bill.month - 1]} {bill.year}</span>
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase mt-0.5">
+                                                {formatBillPeriodLabel(bill)}
+                                            </span>
+                                            {bill.billingType === 'SHORT_TERM' && (
+                                                <Badge variant="outline" className="mt-1 text-[8px] font-black uppercase tracking-tighter w-fit border-amber-500/30 text-amber-700 bg-amber-500/5">
+                                                    Short term
+                                                </Badge>
+                                            )}
                                         </div>
                                     </TableCell>
                                     <TableCell className="py-6">
@@ -531,7 +791,7 @@ export default function VendorBills() {
                                         )}
                                     </TableCell>
                                     <TableCell className="py-6 text-right pr-8">
-                                        <div className="flex justify-end gap-2">
+                                        <div className="flex justify-end gap-2 items-center flex-wrap">
                                             {bill.status === 'PENDING' && (
                                                 <Button
                                                     size="sm"
@@ -542,11 +802,23 @@ export default function VendorBills() {
                                                     Mark Paid
                                                 </Button>
                                             )}
+                                            {canUserDeleteBill(bill) && (
+                                                <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    onClick={() => deleteVendorBill(bill)}
+                                                    disabled={deletingId === bill.id}
+                                                    className="rounded-xl h-9 w-9 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
+                                                    title={bill.status === 'PAID' ? 'Delete (Super Admin only)' : 'Delete bill'}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            )}
                                             <Button
                                                 size="icon"
                                                 variant="ghost"
                                                 onClick={() => handleViewBill(bill)}
-                                                className="rounded-xl h-9 w-9 bg-secondary/20 hover:bg-secondary/40 opacity-0 group-hover:opacity-100 transition-all"
+                                                className="rounded-xl h-9 w-9 bg-secondary/20 hover:bg-secondary/40 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
                                             >
                                                 <Eye className="w-4 h-4" />
                                             </Button>
@@ -615,26 +887,87 @@ export default function VendorBills() {
                                 <div className="space-y-1">
                                     <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Bill Reference</p>
                                     <p className="text-lg font-black text-primary tracking-tighter">{selectedBill.billNumber || 'UNASSIGNED'}</p>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-col gap-2 mt-1">
                                         {selectedBill.status === 'PENDING' ? (
-                                            <div className="flex gap-2 items-center mt-1">
-                                                <Select value={editData.month} onValueChange={(val) => setEditData({ ...editData, month: val })}>
-                                                    <SelectTrigger className="h-8 bg-secondary/50 border-none rounded-lg text-[10px] font-bold w-24">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {months.map((m, i) => <SelectItem key={i + 1} value={(i + 1).toString()}>{m}</SelectItem>)}
-                                                    </SelectContent>
-                                                </Select>
-                                                <Input
-                                                    type="number"
-                                                    value={editData.year}
-                                                    onChange={(e) => setEditData({ ...editData, year: e.target.value })}
-                                                    className="h-8 bg-secondary/50 border-none rounded-lg text-[10px] font-bold w-16"
-                                                />
-                                            </div>
+                                            <>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {[
+                                                        { id: 'LONG_TERM', label: 'Long term' },
+                                                        { id: 'SHORT_TERM', label: 'Short term' },
+                                                    ].map((opt) => (
+                                                        <Button
+                                                            key={opt.id}
+                                                            type="button"
+                                                            size="sm"
+                                                            variant={editData.billingType === opt.id ? 'default' : 'outline'}
+                                                            className="h-8 rounded-lg text-[9px] font-black uppercase tracking-widest"
+                                                            onClick={() => setEditData({ ...editData, billingType: opt.id })}
+                                                        >
+                                                            {opt.label}
+                                                        </Button>
+                                                    ))}
+                                                </div>
+                                                {editData.billingType === 'LONG_TERM' ? (
+                                                    <div className="flex gap-2 items-center">
+                                                        <Select value={editData.month} onValueChange={(val) => setEditData({ ...editData, month: val })}>
+                                                            <SelectTrigger className="h-8 bg-secondary/50 border-none rounded-lg text-[10px] font-bold w-28">
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {months.map((m, i) => (
+                                                                    <SelectItem key={i + 1} value={(i + 1).toString()}>{m}</SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <Input
+                                                            type="number"
+                                                            value={editData.year}
+                                                            onChange={(e) => setEditData({ ...editData, year: e.target.value })}
+                                                            className="h-8 bg-secondary/50 border-none rounded-lg text-[10px] font-bold w-20"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <Popover>
+                                                            <PopoverTrigger asChild>
+                                                                <Button type="button" variant="outline" size="sm" className="h-9 justify-start text-[10px] font-bold rounded-lg">
+                                                                    <CalendarIcon className="mr-1 h-3 w-3" />
+                                                                    From {editData.billingFrom ? format(editData.billingFrom, 'MMM d') : '…'}
+                                                                </Button>
+                                                            </PopoverTrigger>
+                                                            <PopoverContent className="w-auto p-0 rounded-xl" align="start">
+                                                                <Calendar
+                                                                    mode="single"
+                                                                    selected={editData.billingFrom}
+                                                                    onSelect={(d) => d && setEditData({ ...editData, billingFrom: startOfDay(d) })}
+                                                                />
+                                                            </PopoverContent>
+                                                        </Popover>
+                                                        <Popover>
+                                                            <PopoverTrigger asChild>
+                                                                <Button type="button" variant="outline" size="sm" className="h-9 justify-start text-[10px] font-bold rounded-lg">
+                                                                    <CalendarIcon className="mr-1 h-3 w-3" />
+                                                                    To {editData.billingTo ? format(editData.billingTo, 'MMM d') : '…'}
+                                                                </Button>
+                                                            </PopoverTrigger>
+                                                            <PopoverContent className="w-auto p-0 rounded-xl" align="start">
+                                                                <Calendar
+                                                                    mode="single"
+                                                                    selected={editData.billingTo}
+                                                                    onSelect={(d) => d && setEditData({ ...editData, billingTo: startOfDay(d) })}
+                                                                    disabled={(date) =>
+                                                                        editData.billingFrom
+                                                                            ? startOfDay(date) < startOfDay(editData.billingFrom)
+                                                                            : false
+                                                                    }
+                                                                />
+                                                            </PopoverContent>
+                                                        </Popover>
+                                                    </div>
+                                                )}
+                                            </>
                                         ) : (
-                                            <p className="text-xs font-bold text-foreground">{months[selectedBill.month - 1]} {selectedBill.year}</p>
+                                            <p className="text-xs font-bold text-foreground">{formatBillPeriodLabel(selectedBill)}</p>
                                         )}
                                     </div>
                                 </div>
@@ -755,7 +1088,19 @@ export default function VendorBills() {
                         </div>
                     )}
 
-                    <DialogFooter className="mt-8 gap-3">
+                    <DialogFooter className="mt-8 gap-3 flex-wrap">
+                        {selectedBill && canUserDeleteBill(selectedBill) && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => deleteVendorBill(selectedBill)}
+                                disabled={deletingId === selectedBill.id || loading}
+                                className="rounded-2xl font-black uppercase tracking-widest h-12 text-[10px] border-rose-500/40 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                            >
+                                <Trash2 className="w-4 h-4 mr-2 inline" />
+                                {deletingId === selectedBill.id ? 'Deleting…' : 'Delete bill'}
+                            </Button>
+                        )}
                         <Button onClick={() => setIsViewOpen(false)} variant="outline" className="flex-1 rounded-2xl font-black uppercase tracking-widest h-12 text-[10px]">
                             {selectedBill?.status === 'PENDING' ? 'Discard' : 'Close'}
                         </Button>

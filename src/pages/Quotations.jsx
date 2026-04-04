@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format, differenceInCalendarDays, addDays } from 'date-fns';
 import api, { resolveServerUrl } from '../lib/api';
+import { DOCUMENT_PRINT_STYLES, hasPrintBrandContent } from '../lib/printDocumentTheme';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Trash2, FileText } from 'lucide-react';
+import { Plus, Trash2, FileText, MessageCircle } from 'lucide-react';
+import {
+    normalizePhoneForWhatsApp,
+    pickCustomerWhatsAppPhone,
+    openWhatsAppWeb,
+} from '../lib/whatsappWeb';
 
 function qEscape(str) {
     return String(str ?? '')
@@ -31,9 +37,13 @@ export default function Quotations() {
     const [customerId, setCustomerId] = useState('');
     const [customerName, setCustomerName] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
+    const [quotationWhatsAppPhone, setQuotationWhatsAppPhone] = useState('');
     const [customerType, setCustomerType] = useState('LOCAL'); // LOCAL | FOREIGN | CORPORATE
 
     const [vehicleId, setVehicleId] = useState('');
+    const [fleetCategories, setFleetCategories] = useState([]);
+    const [quotationVehicleCategoryFilter, setQuotationVehicleCategoryFilter] = useState('all');
+    const [quotationVehicleSearch, setQuotationVehicleSearch] = useState('');
     const [pickupDate, setPickupDate] = useState(format(new Date(), 'yyyy-MM-dd'));
     const [dropoffDate, setDropoffDate] = useState(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
 
@@ -51,6 +61,7 @@ export default function Quotations() {
                 setLoading(true);
                 const results = await Promise.allSettled([
                     api.get('/vehicles'),
+                    api.get('/fleet/categories'),
                     api.get('/clients'),
                     api.get('/contracts'),
                     api.get('/bookings'),
@@ -68,16 +79,20 @@ export default function Quotations() {
                 };
 
                 setVehicles(getData(0, []));
-                setCustomers(getData(1, []));
-                setContracts(getData(2, []));
-                setBookings(getData(3, []));
-                setQuotationHistory(getData(4, []));
+                const cats = getData(1, []);
+                setFleetCategories(Array.isArray(cats) ? cats : []);
+                const rawClients = getData(2, []);
+                const clientList = Array.isArray(rawClients) ? rawClients : [];
+                setCustomers(clientList.filter((c) => c.status !== 'ARCHIVED'));
+                setContracts(getData(3, []));
+                setBookings(getData(4, []));
+                setQuotationHistory(getData(5, []));
 
-                const nameVal = getData(5, { value: 'false' })?.value;
-                const addressVal = getData(6, { value: 'false' })?.value;
-                const logoVal = getData(7, { value: 'false' })?.value;
-                const contactVal = getData(8, { value: 'false' })?.value;
-                const whatsappVal = getData(9, { value: 'false' })?.value;
+                const nameVal = getData(6, { value: 'false' })?.value;
+                const addressVal = getData(7, { value: 'false' })?.value;
+                const logoVal = getData(8, { value: 'false' })?.value;
+                const contactVal = getData(9, { value: 'false' })?.value;
+                const whatsappVal = getData(10, { value: 'false' })?.value;
 
                 setCompanyName(nameVal !== 'false' ? (nameVal || '') : '');
                 setCompanyAddress(addressVal !== 'false' ? (addressVal || '') : '');
@@ -103,6 +118,17 @@ export default function Quotations() {
         [vehicles, vehicleId]
     );
 
+    const vehiclesForQuotation = useMemo(() => {
+        return vehicles.filter((v) => {
+            const catOk =
+                quotationVehicleCategoryFilter === 'all' || v.fleetCategoryId === quotationVehicleCategoryFilter;
+            const q = quotationVehicleSearch.trim().toLowerCase();
+            const hay = `${v.licensePlate} ${v.vehicleModel?.brand?.name || ''} ${v.vehicleModel?.name || ''} ${v.fleetCategory?.name || ''}`.toLowerCase();
+            const searchOk = !q || hay.includes(q);
+            return catOk && searchOk;
+        });
+    }, [vehicles, quotationVehicleCategoryFilter, quotationVehicleSearch]);
+
     useEffect(() => {
         if (customerMode === 'EXISTING' && selectedCustomer) {
             const inferredName = selectedCustomer.type === 'CORPORATE'
@@ -111,6 +137,7 @@ export default function Quotations() {
             setCustomerName(inferredName);
             setCustomerEmail(selectedCustomer.email || '');
             setCustomerType((selectedCustomer.type || 'LOCAL').toUpperCase());
+            setQuotationWhatsAppPhone(pickCustomerWhatsAppPhone(selectedCustomer) || '');
         }
     }, [customerMode, selectedCustomer]);
 
@@ -207,83 +234,168 @@ export default function Quotations() {
         vehicle: selectedVehicle || null,
     });
 
+    const buildQuotationWhatsAppText = (q, vehicle) => {
+        const veh = vehicle || q.vehicle;
+        const vehLabel = `${veh?.vehicleModel?.brand?.name || ''} ${veh?.vehicleModel?.name || ''}`.trim();
+        const issueDate = q.issueDate ? new Date(q.issueDate) : new Date();
+        const validUntil = q.validUntil ? new Date(q.validUntil) : addDays(issueDate, 7);
+        const rows = Array.isArray(q.extraCharges) ? q.extraCharges : [];
+        const extraLines = rows
+            .filter((r) => (String(r.description || '').trim() || Number(r.amount || 0) !== 0))
+            .map((r) => `• ${String(r.description || 'Extra').trim()}: LKR ${Number(r.amount || 0).toLocaleString()}`)
+            .join('\n');
+
+        const parts = [
+            `Hello ${q.customerName || 'there'},`,
+            '',
+            `Quotation *${q.quotationNo || 'Draft'}*`,
+            `Vehicle: ${veh?.licensePlate || '-'}${vehLabel ? ` (${vehLabel})` : ''}`,
+            `Period: ${format(new Date(q.pickupDate), 'yyyy-MM-dd')} → ${format(new Date(q.dropoffDate), 'yyyy-MM-dd')} (${Number(q.rentalDays || 1)} days)`,
+            `Daily rate: LKR ${Number(q.dailyRate || 0).toLocaleString()}`,
+            `Base rental: LKR ${Number(q.baseAmount || 0).toLocaleString()}`,
+        ];
+        if (extraLines) {
+            parts.push('Extras:', extraLines);
+        }
+        parts.push(
+            '',
+            `*Grand total: LKR ${Number(q.totalAmount || 0).toLocaleString()}*`,
+            '',
+            `Valid through ${format(validUntil, 'yyyy-MM-dd')}.`,
+            '',
+            'Reply to confirm or if you have questions. We can provide a PDF on request.',
+        );
+        if (companyName.trim()) {
+            parts.push('', `_${companyName.trim()}_`);
+        }
+        return parts.join('\n');
+    };
+
+    const sendQuotationViaWhatsApp = (savedQuotation = null) => {
+        const q = savedQuotation || buildLiveQuotationData();
+        const vehicle = q.vehicle || vehicles.find((v) => v.id === q.vehicleId) || null;
+        if (!vehicle) {
+            alert('Please select a vehicle first.');
+            return;
+        }
+        const phoneRaw =
+            (savedQuotation && pickCustomerWhatsAppPhone(savedQuotation.customer)) ||
+            quotationWhatsAppPhone.trim() ||
+            pickCustomerWhatsAppPhone(selectedCustomer);
+        const phone = normalizePhoneForWhatsApp(phoneRaw);
+        if (!phone) {
+            alert(
+                'No WhatsApp number found. For new customers, enter mobile/WhatsApp below. For existing customers, ensure phone or mobile is saved on the customer record.'
+            );
+            return;
+        }
+        const msg = buildQuotationWhatsAppText(q, vehicle);
+        openWhatsAppWeb(phone, msg);
+    };
+
     const buildQuotationHtml = (q) => {
         const issueDate = q.issueDate ? new Date(q.issueDate) : new Date();
         const validUntil = q.validUntil ? new Date(q.validUntil) : addDays(issueDate, 7);
         const vehicle = q.vehicle || selectedVehicle || null;
         const rows = Array.isArray(q.extraCharges) ? q.extraCharges : [];
+
+        const showBrand = hasPrintBrandContent({
+            logoUrl: companyLogo,
+            name: companyName,
+            address: companyAddress,
+            contact: companyContactNumber,
+            whatsapp: companyWhatsAppNumber,
+        });
+        const logoImg = companyLogo
+            ? `<img class="doc-logo" src="${qEscape(companyLogo)}" alt="" />`
+            : '';
+        const nameBlock = companyName.trim()
+            ? `<div class="doc-company-name">${qEscape(companyName.trim())}</div>`
+            : companyLogo
+                ? `<div class="doc-company-name" style="font-size:16px;color:var(--muted);">Your rental partner</div>`
+                : '';
+        const addrBlock = companyAddress.trim()
+            ? `<div class="doc-company-muted">${qEscape(companyAddress).replace(/\n/g, '<br/>')}</div>`
+            : '';
+        const chips = [];
+        if (companyContactNumber.trim()) {
+            chips.push(`<span class="doc-chip">Contact ${qEscape(companyContactNumber.trim())}</span>`);
+        }
+        if (companyWhatsAppNumber.trim()) {
+            chips.push(`<span class="doc-chip">WhatsApp ${qEscape(companyWhatsAppNumber.trim())}</span>`);
+        }
+        const chipRow = chips.length ? `<div class="doc-chip-row">${chips.join('')}</div>` : '';
+        const brandSection = showBrand
+            ? `<div class="doc-brand-row">${logoImg}<div>${nameBlock}${addrBlock}${chipRow}</div></div>`
+            : '';
+
+        const vehLabel = `${vehicle?.vehicleModel?.brand?.name || ''} ${vehicle?.vehicleModel?.name || ''}`.trim();
+        const rowsHtml = `
+      <tr><td>Daily rate × ${Number(q.rentalDays || 1)} day(s) @ ${Number(q.dailyRate || 0).toLocaleString()} LKR</td><td>${Number(q.baseAmount || 0).toLocaleString()}</td></tr>
+      ${rows.map((r) => `
+      <tr><td>${qEscape(r.description || 'Extra charge')}</td><td>${Number(r.amount || 0).toLocaleString()}</td></tr>`).join('')}`;
+
         return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${qEscape(q.quotationNo || 'Quotation')}</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
-    .row { display:flex; justify-content:space-between; gap:16px; }
-    .muted { color:#555; font-size:12px; }
-    table { width:100%; border-collapse: collapse; margin-top: 16px; }
-    th, td { border-bottom: 1px solid #ddd; padding: 10px 6px; text-align:left; font-size: 13px; }
-    th { font-size: 11px; text-transform: uppercase; color:#444; }
-    .right { text-align:right; }
-    .total { font-weight: 800; font-size: 16px; }
-  </style>
+  <style>${DOCUMENT_PRINT_STYLES}</style>
 </head>
 <body>
-  <div style="margin-bottom:18px;">
-    <div style="display:flex;align-items:flex-start;gap:14px;">
-      ${companyLogo ? `<img src="${qEscape(companyLogo)}" alt="Company Logo" style="height:52px; width:52px; object-fit:contain; border-radius:10px; background:rgba(255,255,255,0.6);" />` : ''}
-      <div>
-        ${companyName ? `<div style="font-weight:900;font-size:22px;line-height:1.1;">${qEscape(companyName)}</div>` : ''}
-        ${companyAddress ? `<div class="muted" style="margin-top:6px;">${qEscape(companyAddress).replace(/\n/g, '<br/>')}</div>` : ''}
-        ${companyContactNumber ? `<div class="muted" style="margin-top:6px;">Contact: <b>${qEscape(companyContactNumber)}</b></div>` : ''}
-        ${companyWhatsAppNumber ? `<div class="muted" style="margin-top:4px;">WhatsApp: <b>${qEscape(companyWhatsAppNumber)}</b></div>` : ''}
+  <div class="doc">
+    <div class="doc-topbar"></div>
+    <div class="doc-inner">
+      ${brandSection}
+      <div class="doc-headline">
+        <div>
+          <div class="doc-kind">Quotation</div>
+          <div class="doc-main-id">${qEscape(q.quotationNo || 'Draft')}</div>
+          <div class="doc-meta">Issued <b>${qEscape(issueDate.toLocaleString())}</b> · Valid through <b>${qEscape(format(validUntil, 'yyyy-MM-dd'))}</b></div>
+        </div>
+        <div class="doc-pill doc-pill-em">${Number(q.rentalDays || 1)} day rental</div>
+      </div>
+
+      <div class="doc-cards">
+        <div class="doc-card">
+          <div class="doc-card-label">Customer</div>
+          <div class="doc-card-value">${qEscape(q.customerName || '')}</div>
+          <div class="doc-card-sub">${qEscape(q.customerEmail || '—')}</div>
+          <div class="doc-chip-row" style="margin-top:10px;"><span class="doc-chip">${qEscape(q.customerType || '')}</span></div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-card-label">Vehicle</div>
+          <div class="doc-card-value">${qEscape(vehicle?.licensePlate || '')}</div>
+          <div class="doc-card-sub">${qEscape(vehLabel)}</div>
+        </div>
+      </div>
+
+      <div class="doc-card" style="margin-bottom:16px;background:#fff;border-style:dashed;">
+        <div class="doc-card-label">Rental period</div>
+        <div class="doc-card-value" style="font-size:15px;">
+          ${qEscape(format(new Date(q.pickupDate), 'yyyy-MM-dd'))} → ${qEscape(format(new Date(q.dropoffDate), 'yyyy-MM-dd'))}
+        </div>
+      </div>
+
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead>
+            <tr><th>Description</th><th>Amount (LKR)</th></tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot>
+            <tr><td>Grand total</td><td>${Number(q.totalAmount || 0).toLocaleString()}</td></tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="doc-foot">
+        System-generated quotation — no signature required. Valid for 7 days from the issue date.
+        Use your browser print dialog and choose &quot;Save as PDF&quot; to download.
       </div>
     </div>
   </div>
-
-  <div class="row">
-    <div>
-      <div style="font-weight:900; font-size:22px;">QUOTATION</div>
-      <div class="muted">Quotation No: <b>${qEscape(q.quotationNo || '-')}</b></div>
-      <div class="muted">Date: <b>${qEscape(issueDate.toLocaleString())}</b></div>
-      <div class="muted">Valid Until: <b>${qEscape(format(validUntil, 'yyyy-MM-dd'))}</b></div>
-    </div>
-  </div>
-
-  <div style="margin-top:18px;" class="row">
-    <div>
-      <div class="muted">Customer</div>
-      <div style="font-weight:700;">${qEscape(q.customerName || '')}</div>
-      <div class="muted">${qEscape(q.customerEmail || '-')}</div>
-      <div class="muted">Customer Type: <b>${qEscape(q.customerType || '')}</b></div>
-    </div>
-    <div style="text-align:right;">
-      <div class="muted">Vehicle</div>
-      <div style="font-weight:700;">${qEscape(vehicle?.licensePlate || '')}</div>
-      <div class="muted">${qEscape((vehicle?.vehicleModel?.brand?.name || '') + ' ' + (vehicle?.vehicleModel?.name || '')).trim()}</div>
-    </div>
-  </div>
-
-  <div style="margin-top:12px;" class="row">
-    <div class="muted">Rental Period: <b>${qEscape(format(new Date(q.pickupDate), 'yyyy-MM-dd'))}</b> to <b>${qEscape(format(new Date(q.dropoffDate), 'yyyy-MM-dd'))}</b> (${Number(q.rentalDays || 1)} day(s))</div>
-  </div>
-
-  <table>
-    <thead>
-      <tr><th>Description</th><th class="right">Amount (LKR)</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>Daily Rate x ${Number(q.rentalDays || 1)} day(s) (Rate: ${Number(q.dailyRate || 0).toLocaleString()})</td><td class="right">${Number(q.baseAmount || 0).toLocaleString()}</td></tr>
-      ${rows.map((r) => `
-        <tr><td>${qEscape(r.description || 'Extra Charge')}</td><td class="right">${Number(r.amount || 0).toLocaleString()}</td></tr>
-      `).join('')}
-      <tr><td class="total">Grand Total</td><td class="right total">${Number(q.totalAmount || 0).toLocaleString()}</td></tr>
-    </tbody>
-  </table>
-
-  <div class="muted" style="margin-top:18px;">This is a system generated document. No signature required.</div>
-  <div class="muted" style="margin-top:6px;">Quotation validity: 7 days from the issue date.</div>
-  <div class="muted" style="margin-top:12px;">Print tip: choose "Save as PDF" in the print dialog.</div>
 </body>
 </html>`;
     };
@@ -364,23 +476,75 @@ export default function Quotations() {
         }
     };
 
+    const showScreenBrand = hasPrintBrandContent({
+        logoUrl: companyLogo,
+        name: companyName,
+        address: companyAddress,
+        contact: companyContactNumber,
+        whatsapp: companyWhatsAppNumber,
+    });
+
     return (
         <div className="p-6 space-y-6">
-            <div className="flex items-center justify-between">
-                <h1 className="text-3xl font-bold tracking-tight">Quotations</h1>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => downloadQuotationPdf()} disabled={loading || saving}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h1 className="text-3xl font-black tracking-tight text-foreground">Quotations</h1>
+                <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => downloadQuotationPdf()} disabled={loading || saving} className="rounded-xl font-black text-[10px] uppercase tracking-widest">
                         <FileText className="w-4 h-4 mr-2" /> Download PDF
                     </Button>
-                    <Button onClick={saveQuotation} disabled={loading || saving}>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => sendQuotationViaWhatsApp(null)}
+                        disabled={loading || saving}
+                        className="rounded-xl font-black text-[10px] uppercase tracking-widest border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                    >
+                        <MessageCircle className="w-4 h-4 mr-2" /> WhatsApp Web
+                    </Button>
+                    <Button onClick={saveQuotation} disabled={loading || saving} className="rounded-xl font-black text-[10px] uppercase tracking-widest">
                         {saving ? 'Saving...' : 'Save Quotation'}
                     </Button>
                 </div>
             </div>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Quotation Generation</CardTitle>
+            {showScreenBrand ? (
+                <div className="rounded-[1.75rem] border border-primary/15 bg-gradient-to-br from-primary/[0.07] via-card to-card p-6 flex flex-col sm:flex-row gap-5 items-start shadow-sm">
+                    {companyLogo ? (
+                        <img
+                            src={companyLogo}
+                            alt=""
+                            className="h-20 w-20 sm:h-24 sm:w-24 shrink-0 rounded-2xl object-contain bg-white/90 border border-border"
+                        />
+                    ) : null}
+                    <div className="min-w-0 space-y-2 flex-1">
+                        {companyName.trim() ? (
+                            <div className="text-2xl font-black tracking-tight text-foreground">{companyName.trim()}</div>
+                        ) : (
+                            <div className="text-lg font-bold text-muted-foreground">Company profile</div>
+                        )}
+                        {companyAddress.trim() ? (
+                            <p className="text-sm text-muted-foreground whitespace-pre-line leading-relaxed max-w-xl">{companyAddress.trim()}</p>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                            {companyContactNumber.trim() ? (
+                                <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                    {companyContactNumber.trim()}
+                                </span>
+                            ) : null}
+                            {companyWhatsAppNumber.trim() ? (
+                                <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                    WhatsApp {companyWhatsAppNumber.trim()}
+                                </span>
+                            ) : null}
+                        </div>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest pt-1">Shown on every quotation PDF</p>
+                    </div>
+                </div>
+            ) : null}
+
+            <Card className="rounded-[1.75rem] border-border/80 shadow-sm overflow-hidden">
+                <CardHeader className="border-b border-border/60 bg-muted/20">
+                    <CardTitle className="text-lg font-black tracking-tight">Quotation generation</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -445,11 +609,48 @@ export default function Quotations() {
                         </div>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2 md:col-span-2">
+                            <Label>WhatsApp / mobile (for Send via WhatsApp)</Label>
+                            <Input
+                                value={quotationWhatsAppPhone}
+                                onChange={(e) => setQuotationWhatsAppPhone(e.target.value)}
+                                placeholder="e.g. 0771234567 or 94771234567 — prefilled from customer when possible"
+                            />
+                            <p className="text-[11px] text-muted-foreground">
+                                Opens WhatsApp Web with a pre-filled quotation summary. Edit this if the customer uses a different WhatsApp number.
+                            </p>
+                        </div>
+                    </div>
+
                     {customerMode === 'EXISTING' ? (
                         <div className="text-sm text-muted-foreground">
                             Customer Type: <b>{customerType || '-'}</b>
                         </div>
                     ) : null}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label>Filter by category</Label>
+                            <Select value={quotationVehicleCategoryFilter} onValueChange={setQuotationVehicleCategoryFilter}>
+                                <SelectTrigger><SelectValue placeholder="All categories" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All categories</SelectItem>
+                                    {fleetCategories.map((c) => (
+                                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Search vehicles</Label>
+                            <Input
+                                placeholder="Plate, brand, model, category…"
+                                value={quotationVehicleSearch}
+                                onChange={(e) => setQuotationVehicleSearch(e.target.value)}
+                            />
+                        </div>
+                    </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-2">
@@ -457,9 +658,10 @@ export default function Quotations() {
                             <Select value={vehicleId} onValueChange={setVehicleId}>
                                 <SelectTrigger><SelectValue placeholder="Select vehicle" /></SelectTrigger>
                                 <SelectContent>
-                                    {vehicles.map((v) => (
+                                    {vehiclesForQuotation.map((v) => (
                                         <SelectItem key={v.id} value={v.id}>
                                             {v.licensePlate} - {v.vehicleModel?.brand?.name} {v.vehicleModel?.name}
+                                            {v.fleetCategory?.name ? ` · ${v.fleetCategory.name}` : ''}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -513,35 +715,42 @@ export default function Quotations() {
                         </CardContent>
                     </Card>
 
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="text-base">Quotation Preview Summary</CardTitle>
+                    <Card className="rounded-2xl border-primary/15 bg-gradient-to-b from-card to-muted/10 overflow-hidden">
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-base font-black tracking-tight flex items-center gap-2">
+                                <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                                    <FileText className="h-4 w-4" />
+                                </span>
+                                Live preview summary
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Item</TableHead>
-                                        <TableHead className="text-right">Amount (LKR)</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    <TableRow>
-                                        <TableCell>Base Rental ({rentalDays} day(s) x {Number(dailyRate).toLocaleString()})</TableCell>
-                                        <TableCell className="text-right">{Number(baseAmount).toLocaleString()}</TableCell>
-                                    </TableRow>
-                                    <TableRow>
-                                        <TableCell>Extra Charges</TableCell>
-                                        <TableCell className="text-right">{Number(extraAmount).toLocaleString()}</TableCell>
-                                    </TableRow>
-                                    <TableRow>
-                                        <TableCell className="font-bold">Grand Total</TableCell>
-                                        <TableCell className="text-right font-bold">{Number(grandTotal).toLocaleString()}</TableCell>
-                                    </TableRow>
-                                </TableBody>
-                            </Table>
-                            <div className="text-xs text-muted-foreground mt-4">
-                                Quotation validity: 7 days. Quotations do not create contracts and do not affect P&L.
+                            <div className="rounded-xl border border-border overflow-hidden">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow className="bg-muted/40 hover:bg-muted/40 border-0">
+                                            <TableHead className="text-[10px] font-black uppercase tracking-widest">Item</TableHead>
+                                            <TableHead className="text-right text-[10px] font-black uppercase tracking-widest">Amount (LKR)</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        <TableRow>
+                                            <TableCell className="font-medium">Base rental ({rentalDays} day(s) × {Number(dailyRate).toLocaleString()})</TableCell>
+                                            <TableCell className="text-right font-mono font-semibold">{Number(baseAmount).toLocaleString()}</TableCell>
+                                        </TableRow>
+                                        <TableRow>
+                                            <TableCell className="font-medium">Extra charges</TableCell>
+                                            <TableCell className="text-right font-mono font-semibold">{Number(extraAmount).toLocaleString()}</TableCell>
+                                        </TableRow>
+                                        <TableRow className="bg-primary/5 border-t-2 border-primary/30">
+                                            <TableCell className="font-black">Grand total</TableCell>
+                                            <TableCell className="text-right font-black font-mono text-base text-primary">{Number(grandTotal).toLocaleString()}</TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            </div>
+                            <div className="text-[11px] text-muted-foreground mt-4 leading-relaxed">
+                                Quotation validity: 7 days. Quotations do not create contracts and do not affect P&amp;L.
                             </div>
                         </CardContent>
                     </Card>
@@ -585,9 +794,20 @@ export default function Quotations() {
                                     <TableCell className="text-right">{Number(q.totalAmount || 0).toLocaleString()}</TableCell>
                                     <TableCell>{q.createdAt ? format(new Date(q.createdAt), 'yyyy-MM-dd HH:mm') : '-'}</TableCell>
                                     <TableCell className="text-right">
-                                        <Button variant="outline" size="sm" onClick={() => downloadQuotationPdf(q)}>
-                                            <FileText className="w-4 h-4 mr-2" /> PDF
-                                        </Button>
+                                        <div className="flex flex-wrap justify-end gap-2">
+                                            <Button variant="outline" size="sm" onClick={() => downloadQuotationPdf(q)}>
+                                                <FileText className="w-4 h-4 mr-2" /> PDF
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400"
+                                                onClick={() => sendQuotationViaWhatsApp(q)}
+                                            >
+                                                <MessageCircle className="w-4 h-4 mr-2" /> WA
+                                            </Button>
+                                        </div>
                                     </TableCell>
                                 </TableRow>
                             ))}

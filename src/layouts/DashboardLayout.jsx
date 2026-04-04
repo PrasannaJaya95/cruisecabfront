@@ -75,6 +75,7 @@ const DashboardLayout = () => {
             label: 'Fleet',
             icon: Car,
             children: [
+                { label: 'Fleet Categories', path: '/fleet/categories' },
                 { label: 'Vehicle Brand', path: '/fleet/brands' },
                 { label: 'Vehicle Model', path: '/fleet/models' },
                 { label: 'Vehicle', path: '/vehicles' },
@@ -135,7 +136,7 @@ const DashboardLayout = () => {
             {/* Sidebar */}
             <aside
                 className={cn(
-                    "fixed inset-y-0 left-4 z-50 w-72 my-4 transition-transform duration-300 ease-in-out md:relative md:translate-x-0 md:bg-transparent",
+                    "fixed inset-y-0 left-4 z-50 w-72 my-4 transition-transform duration-300 ease-in-out md:relative md:translate-x-0 md:bg-transparent print:hidden",
                     !sidebarOpen && "-translate-x-[110%] md:hidden"
                 )}
             >
@@ -278,10 +279,10 @@ const DashboardLayout = () => {
             {/* Main Content */}
             <div className="flex-1 flex flex-col min-w-0 bg-transparent relative">
                 {/* Background Accents */}
-                <div className="absolute top-0 right-0 w-[800px] h-[600px] bg-primary/5 blur-[150px] -z-10 pointer-events-none"></div>
-                <div className="absolute bottom-0 left-0 w-[600px] h-[400px] bg-orange-500/5 blur-[120px] -z-10 pointer-events-none"></div>
+                <div className="absolute top-0 right-0 w-[800px] h-[600px] bg-primary/5 blur-[150px] -z-10 pointer-events-none print:hidden"></div>
+                <div className="absolute bottom-0 left-0 w-[600px] h-[400px] bg-orange-500/5 blur-[120px] -z-10 pointer-events-none print:hidden"></div>
 
-                <header className="h-24 sticky top-0 z-40 px-10 flex items-center justify-between">
+                <header className="h-24 sticky top-0 z-40 px-10 flex items-center justify-between print:hidden">
                     <div className="flex items-center gap-4">
                         <Button variant="ghost" size="icon" className="md:hidden text-muted-foreground" onClick={() => setSidebarOpen(true)}>
                             <Menu className="h-6 w-6" />
@@ -338,7 +339,7 @@ const DashboardLayout = () => {
                     </div>
                 </header>
 
-                <main className="flex-1 p-10 overflow-auto relative z-10 custom-scrollbar">
+                <main className="flex-1 p-10 overflow-auto relative z-10 custom-scrollbar print:p-6">
                     <Outlet />
                 </main>
             </div>

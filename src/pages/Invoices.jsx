@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Search, Plus, Filter, FileText, Download, MoreVertical, ExternalLink, Mail, AlertCircle, CheckCircle2, Printer, CreditCard } from 'lucide-react';
+import { Search, Plus, Filter, FileText, Download, MoreVertical, ExternalLink, Mail, AlertCircle, CheckCircle2, Printer, CreditCard, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,12 @@ import {
 } from '@/components/ui/select';
 import { format } from 'date-fns';
 import api, { resolveServerUrl } from '../lib/api';
+import { DOCUMENT_PRINT_STYLES, hasPrintBrandContent } from '../lib/printDocumentTheme';
+import {
+    normalizePhoneForWhatsApp,
+    pickCustomerWhatsAppPhone,
+    openWhatsAppWeb,
+} from '../lib/whatsappWeb';
 import { useAuth } from '../context/AuthContext';
 import {
     Dialog,
@@ -34,6 +40,37 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+
+function customerDisplayNameForWhatsApp(customer) {
+    if (!customer) return 'there';
+    if (String(customer.type || '').toUpperCase() === 'CORPORATE' && customer.companyName?.trim()) {
+        return customer.companyName.trim();
+    }
+    return customer.name?.trim() || customer.email?.split('@')[0] || 'there';
+}
+
+function buildInvoiceWhatsAppMessage(invoice, shareUrl) {
+    const name = customerDisplayNameForWhatsApp(invoice.customer);
+    const no = invoice.invoiceNo || '';
+    const contract = invoice.contract?.contractNo || '-';
+    const total = Number(invoice.total ?? 0);
+    const isReturn = String(invoice.type || '').toUpperCase() === 'RETURN';
+    const display = isReturn ? Math.abs(total) : total;
+    const settlement = isReturn
+        ? (total < 0 ? 'Customer to pay' : 'Refund due')
+        : null;
+    const lines = [
+        `Hello ${name},`,
+        '',
+        `Your invoice *${no}* is ready (contract ${contract}).`,
+        `Amount (LKR): *${display.toLocaleString()}*${settlement ? ` _(${settlement})_` : ''}`,
+        '',
+        `View or print: ${shareUrl}`,
+        '',
+        'Thank you.',
+    ];
+    return lines.join('\n');
+}
 
 const Invoices = () => {
     const { user } = useAuth();
@@ -49,8 +86,38 @@ const Invoices = () => {
     const [detailLoading, setDetailLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
 
+    const [previewCompanyName, setPreviewCompanyName] = useState('');
+    const [previewCompanyAddress, setPreviewCompanyAddress] = useState('');
+    const [previewCompanyLogo, setPreviewCompanyLogo] = useState(null);
+    const [previewCompanyContact, setPreviewCompanyContact] = useState('');
+    const [previewCompanyWhatsapp, setPreviewCompanyWhatsapp] = useState('');
+    const [whatsappSending, setWhatsappSending] = useState(false);
+
     useEffect(() => {
         fetchInvoices();
+    }, []);
+
+    useEffect(() => {
+        const loadCompany = async () => {
+            try {
+                const [nameRes, addressRes, logoRes, contactRes, whatsappRes] = await Promise.all([
+                    api.get('/settings/company_name'),
+                    api.get('/settings/company_address'),
+                    api.get('/settings/company_logo'),
+                    api.get('/settings/company_contact_number'),
+                    api.get('/settings/company_whatsapp_number'),
+                ]);
+                setPreviewCompanyName(nameRes.data.value !== 'false' ? (nameRes.data.value || '') : '');
+                setPreviewCompanyAddress(addressRes.data.value !== 'false' ? (addressRes.data.value || '') : '');
+                const rawLogo = logoRes.data.value !== 'false' ? (logoRes.data.value || null) : null;
+                setPreviewCompanyLogo(rawLogo ? resolveServerUrl(rawLogo) : null);
+                setPreviewCompanyContact(contactRes.data.value !== 'false' ? (contactRes.data.value || '') : '');
+                setPreviewCompanyWhatsapp(whatsappRes.data.value !== 'false' ? (whatsappRes.data.value || '') : '');
+            } catch (e) {
+                console.error('Failed to load company profile for invoice preview:', e);
+            }
+        };
+        loadCompany();
     }, []);
 
     const fetchInvoices = async () => {
@@ -206,6 +273,45 @@ const Invoices = () => {
         }
     };
 
+    const sendInvoiceWhatsApp = async (invoice) => {
+        if (!invoice?.id) return;
+        const rawPhone = pickCustomerWhatsAppPhone(invoice.customer);
+        const phone = normalizePhoneForWhatsApp(rawPhone);
+        if (!phone) {
+            alert(
+                'No mobile number on file for this customer. Add phone or mobile on the customer record, then try again.'
+            );
+            return;
+        }
+        try {
+            setWhatsappSending(true);
+            const { data } = await api.get(`/invoices/${invoice.id}/share-link`);
+            const shareUrl = data?.shareUrl;
+            if (!shareUrl) {
+                alert('Could not create invoice link. Try again.');
+                return;
+            }
+            const message = buildInvoiceWhatsAppMessage(invoice, shareUrl);
+            openWhatsAppWeb(phone, message);
+        } catch (e) {
+            console.error(e);
+            alert(e.response?.data?.message || 'Failed to open WhatsApp');
+        } finally {
+            setWhatsappSending(false);
+        }
+    };
+
+    const sendInvoiceWhatsAppFromRow = async (e, inv) => {
+        e.stopPropagation();
+        try {
+            const { data: full } = await api.get(`/invoices/${inv.invoiceId}`);
+            await sendInvoiceWhatsApp(full);
+        } catch (e) {
+            console.error(e);
+            alert(e.response?.data?.message || 'Failed to load invoice for WhatsApp');
+        }
+    };
+
     const printInvoice = async () => {
         if (!selected) return;
 
@@ -242,7 +348,6 @@ const Invoices = () => {
             companyContactNumber = contactRes.data.value !== 'false' ? (contactRes.data.value || '') : '';
             companyWhatsAppNumber = whatsappRes.data.value !== 'false' ? (whatsappRes.data.value || '') : '';
         } catch (e) {
-            // Printing should still work even if company settings fail.
             console.error('Failed to load company profile for print:', e);
         }
 
@@ -250,93 +355,97 @@ const Invoices = () => {
         const settlementLabel = isReturn ? (Number(selected.total || 0) < 0 ? 'Customer Need to Pay' : 'Company Have to Refund') : '';
         const displayTotal = isReturn ? Math.abs(Number(selected.total || 0)) : Number(selected.total || 0);
 
-        const showCompanyBrand = !!companyName.trim();
-        const brandAddressHtml = showCompanyBrand && companyAddress.trim() ? formatAddressHtml(companyAddress) : '';
-        const brandLogoHtml = showCompanyBrand && companyLogo
-            ? `<img src="${escapeHtml(companyLogo)}" alt="Company Logo" style="height:52px; width:52px; object-fit:contain; border-radius:10px; background:rgba(255,255,255,0.6);" />`
+        const showBrand = hasPrintBrandContent({
+            logoUrl: companyLogo,
+            name: companyName,
+            address: companyAddress,
+            contact: companyContactNumber,
+            whatsapp: companyWhatsAppNumber,
+        });
+        const logoImg = companyLogo
+            ? `<img class="doc-logo" src="${escapeHtml(companyLogo)}" alt="" />`
             : '';
-        const companyNameHtml = showCompanyBrand
-            ? `<div class="company-name">${escapeHtml(companyName.trim())}</div>`
+        const nameBlock = companyName.trim()
+            ? `<div class="doc-company-name">${escapeHtml(companyName.trim())}</div>`
+            : companyLogo
+                ? `<div class="doc-company-name" style="font-size:16px;color:var(--muted);">Your rental partner</div>`
+                : '';
+        const addrBlock = companyAddress.trim()
+            ? `<div class="doc-company-muted">${formatAddressHtml(companyAddress)}</div>`
+            : '';
+        const chips = [];
+        if (companyContactNumber.trim()) {
+            chips.push(`<span class="doc-chip">Contact ${escapeHtml(companyContactNumber.trim())}</span>`);
+        }
+        if (companyWhatsAppNumber.trim()) {
+            chips.push(`<span class="doc-chip">WhatsApp ${escapeHtml(companyWhatsAppNumber.trim())}</span>`);
+        }
+        const chipRow = chips.length ? `<div class="doc-chip-row">${chips.join('')}</div>` : '';
+        const brandSection = showBrand
+            ? `<div class="doc-brand-row">${logoImg}<div>${nameBlock}${addrBlock}${chipRow}</div></div>`
             : '';
 
-        const contactHtml = showCompanyBrand && companyContactNumber.trim()
-            ? `<div class="muted" style="margin-top:6px;">Contact: <b>${escapeHtml(companyContactNumber.trim())}</b></div>`
-            : '';
-        const whatsappHtml = showCompanyBrand && companyWhatsAppNumber.trim()
-            ? `<div class="muted" style="margin-top:4px;">WhatsApp: <b>${escapeHtml(companyWhatsAppNumber.trim())}</b></div>`
-            : '';
+        const contractNo = selected.contract?.contractNo || '-';
+        const custName = selected.customer?.name || selected.customer?.email || '';
+        const custEmail = selected.customer?.email || '';
+        const plate = selected.vehicle?.licensePlate || '';
+        const vehLabel = `${selected.vehicle?.vehicleModel?.brand?.name || ''} ${selected.vehicle?.vehicleModel?.name || ''}`.trim();
+        const linesHtml = (Array.isArray(selected.lines) ? selected.lines : []).map((l) => `
+            <tr><td>${escapeHtml(l.description || '')}</td><td>${Number(l.amount || 0).toLocaleString()}</td></tr>`).join('');
+        const totalLabel = settlementLabel ? `Total (${settlementLabel})` : 'Total';
 
         const html = `
 <!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(selected.invoiceNo)}</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
-    .row { display:flex; justify-content:space-between; gap:16px; }
-    .muted { color:#555; font-size:12px; }
-    table { width:100%; border-collapse: collapse; margin-top: 16px; }
-    th, td { border-bottom: 1px solid #ddd; padding: 10px 6px; text-align:left; font-size: 13px; }
-    th { font-size: 11px; text-transform: uppercase; color:#444; }
-    .right { text-align:right; }
-    .total { font-weight: 800; font-size: 16px; }
-    .brand-top { margin-bottom:18px; }
-    .brand-left { display:flex; align-items:flex-start; gap:14px; }
-    .company-name { font-weight:900; font-size:22px; line-height:1.1; }
-  </style>
+  <style>${DOCUMENT_PRINT_STYLES}</style>
 </head>
 <body>
-  <div class="brand-top">
-    <div class="brand-left">
-      ${brandLogoHtml}
-      <div>
-        ${companyNameHtml}
-        ${brandAddressHtml ? `<div class="muted" style="margin-top:6px;">${brandAddressHtml}</div>` : ''}
-        ${contactHtml}
-        ${whatsappHtml}
+  <div class="doc">
+    <div class="doc-topbar"></div>
+    <div class="doc-inner">
+      ${brandSection}
+      <div class="doc-headline">
+        <div>
+          <div class="doc-kind">Invoice</div>
+          <div class="doc-main-id">${escapeHtml(selected.invoiceNo)}</div>
+          <div class="doc-meta">Contract <b>${escapeHtml(contractNo)}</b> · Issued <b>${selected.createdAt ? escapeHtml(new Date(selected.createdAt).toLocaleString()) : '-'}</b></div>
+          ${settlementLabel ? `<div class="doc-chip-row" style="margin-top:12px;"><span class="doc-pill doc-pill-em">${escapeHtml(settlementLabel)}</span></div>` : ''}
+        </div>
+        <div class="doc-pill">${escapeHtml(selected.status)}</div>
       </div>
+
+      <div class="doc-cards">
+        <div class="doc-card">
+          <div class="doc-card-label">Bill to</div>
+          <div class="doc-card-value">${escapeHtml(custName)}</div>
+          <div class="doc-card-sub">${escapeHtml(custEmail)}</div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-card-label">Vehicle</div>
+          <div class="doc-card-value">${escapeHtml(plate)}</div>
+          <div class="doc-card-sub">${escapeHtml(vehLabel)}</div>
+        </div>
+      </div>
+
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead>
+            <tr><th>Description</th><th>Amount (LKR)</th></tr>
+          </thead>
+          <tbody>${linesHtml}</tbody>
+          <tfoot>
+            <tr><td>${escapeHtml(totalLabel)}</td><td>${Number(displayTotal || 0).toLocaleString()}</td></tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="doc-foot">Thank you for your business. Use your browser print dialog and choose &quot;Save as PDF&quot; to download.</div>
     </div>
   </div>
-  <div class="row">
-    <div>
-      <div style="font-weight:900; font-size:22px;">INVOICE</div>
-      <div class="muted">Invoice No: <b>${escapeHtml(selected.invoiceNo)}</b></div>
-      <div class="muted">Contract No: <b>${escapeHtml(selected.contract?.contractNo || '-')}</b></div>
-      <div class="muted">Date: <b>${selected.createdAt ? escapeHtml(new Date(selected.createdAt).toLocaleString()) : ''}</b></div>
-    </div>
-    <div style="text-align:right;">
-      <div class="muted">Status</div>
-      <div style="font-weight:900;">${escapeHtml(selected.status)}</div>
-    </div>
-  </div>
-
-  <div style="margin-top:18px;" class="row">
-    <div>
-      <div class="muted">Customer</div>
-      <div style="font-weight:700;">${escapeHtml(selected.customer?.name || selected.customer?.email || '')}</div>
-      <div class="muted">${escapeHtml(selected.customer?.email || '')}</div>
-    </div>
-    <div style="text-align:right;">
-      <div class="muted">Vehicle</div>
-      <div style="font-weight:700;">${escapeHtml(selected.vehicle?.licensePlate || '')}</div>
-      <div class="muted">${escapeHtml((selected.vehicle?.vehicleModel?.brand?.name || '') + ' ' + (selected.vehicle?.vehicleModel?.name || '')).trim()}</div>
-    </div>
-  </div>
-
-  <table>
-    <thead>
-      <tr><th>Description</th><th class="right">Amount (LKR)</th></tr>
-    </thead>
-    <tbody>
-      ${(Array.isArray(selected.lines) ? selected.lines : []).map(l => `
-        <tr><td>${escapeHtml(l.description || '')}</td><td class="right">${Number(l.amount||0).toLocaleString()}</td></tr>
-      `).join('')}
-      <tr><td class="total">Total${settlementLabel ? ` (${settlementLabel})` : ''}</td><td class="right total">${Number(displayTotal||0).toLocaleString()}</td></tr>
-    </tbody>
-  </table>
-
-  <div class="muted" style="margin-top:18px;">Print tip: choose "Save as PDF" in the print dialog.</div>
 </body>
 </html>`;
         const w = window.open('', '_blank');
@@ -527,23 +636,43 @@ const Invoices = () => {
                                     <TableCell className="py-6 px-8 text-right">
                                         <Popover>
                                             <PopoverTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-10 w-10 text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-all"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
                                                     <MoreVertical className="h-5 w-5" />
                                                 </Button>
                                             </PopoverTrigger>
                                             <PopoverContent align="end" className="w-56 p-2 rounded-2xl border-border bg-card/95 backdrop-blur-xl shadow-2xl">
                                                 <div className="grid gap-1">
-                                                    <button className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest cursor-pointer hover:bg-secondary transition-all">
+                                                    <button
+                                                        type="button"
+                                                        className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest cursor-pointer hover:bg-secondary transition-all"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openInvoice(inv.invoiceId);
+                                                        }}
+                                                    >
                                                         <ExternalLink className="h-4 w-4 text-primary" /> View Details
                                                     </button>
-                                                    <button className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest cursor-pointer hover:bg-secondary transition-all">
+                                                    <button
+                                                        type="button"
+                                                        className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 transition-all"
+                                                        onClick={(e) => sendInvoiceWhatsAppFromRow(e, inv)}
+                                                        disabled={whatsappSending}
+                                                    >
+                                                        <MessageCircle className="h-4 w-4 shrink-0" /> WhatsApp Web
+                                                    </button>
+                                                    <button className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest opacity-50" type="button" disabled title="Coming soon">
                                                         <Download className="h-4 w-4 text-primary" /> Download PDF
                                                     </button>
-                                                    <button className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest cursor-pointer hover:bg-secondary transition-all">
+                                                    <button className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest opacity-50" type="button" disabled title="Coming soon">
                                                         <Mail className="h-4 w-4 text-primary" /> Send to Email
                                                     </button>
                                                     <div className="h-[1px] bg-border my-2" />
-                                                    <button className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest cursor-pointer text-rose-500 hover:bg-rose-50 transition-all">
+                                                    <button className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest text-rose-500 opacity-50" type="button" disabled title="Use invoice detail actions">
                                                         <AlertCircle className="h-4 w-4" /> Void Invoice
                                                     </button>
                                                 </div>
@@ -570,41 +699,79 @@ const Invoices = () => {
 
                     {selected && !detailLoading && (
                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div className="border rounded-xl p-4">
-                                    <div className="text-xs font-black uppercase tracking-widest text-muted-foreground">Customer</div>
-                                    <div className="font-bold mt-1">{selected.customer?.name || selected.customer?.email}</div>
-                                    <div className="text-xs text-muted-foreground">{selected.customer?.email}</div>
+                            {hasPrintBrandContent({
+                                logoUrl: previewCompanyLogo,
+                                name: previewCompanyName,
+                                address: previewCompanyAddress,
+                                contact: previewCompanyContact,
+                                whatsapp: previewCompanyWhatsapp,
+                            }) ? (
+                                <div className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.07] to-transparent p-5 flex gap-4 items-start">
+                                    {previewCompanyLogo ? (
+                                        <img
+                                            src={previewCompanyLogo}
+                                            alt=""
+                                            className="h-16 w-16 shrink-0 rounded-xl object-contain bg-white/80 border border-border shadow-sm"
+                                        />
+                                    ) : null}
+                                    <div className="min-w-0 space-y-1">
+                                        {previewCompanyName.trim() ? (
+                                            <div className="text-lg font-black tracking-tight text-foreground">{previewCompanyName.trim()}</div>
+                                        ) : previewCompanyLogo ? (
+                                            <div className="text-sm font-bold text-muted-foreground">Company</div>
+                                        ) : null}
+                                        {previewCompanyAddress.trim() ? (
+                                            <div className="text-xs text-muted-foreground whitespace-pre-line leading-relaxed">{previewCompanyAddress.trim()}</div>
+                                        ) : null}
+                                        <div className="flex flex-wrap gap-2 pt-1">
+                                            {previewCompanyContact.trim() ? (
+                                                <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/15">
+                                                    {previewCompanyContact.trim()}
+                                                </span>
+                                            ) : null}
+                                            {previewCompanyWhatsapp.trim() ? (
+                                                <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/15">
+                                                    WA {previewCompanyWhatsapp.trim()}
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="border rounded-xl p-4">
-                                    <div className="text-xs font-black uppercase tracking-widest text-muted-foreground">Vehicle</div>
-                                    <div className="font-bold mt-1">{selected.vehicle?.licensePlate}</div>
-                                    <div className="text-xs text-muted-foreground">
+                            ) : null}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                <div className="rounded-xl border border-border bg-muted/10 p-4">
+                                    <div className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Bill to</div>
+                                    <div className="font-black mt-1 text-foreground">{selected.customer?.name || selected.customer?.email}</div>
+                                    <div className="text-xs text-muted-foreground mt-0.5">{selected.customer?.email}</div>
+                                </div>
+                                <div className="rounded-xl border border-border bg-muted/10 p-4">
+                                    <div className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Vehicle</div>
+                                    <div className="font-black mt-1 text-foreground">{selected.vehicle?.licensePlate}</div>
+                                    <div className="text-xs text-muted-foreground mt-0.5">
                                         {selected.vehicle?.vehicleModel?.brand?.name} {selected.vehicle?.vehicleModel?.name}
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="border rounded-xl overflow-hidden">
+                            <div className="rounded-xl border border-border overflow-hidden bg-muted/5">
                                 <Table>
                                     <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Description</TableHead>
-                                            <TableHead className="text-right">Amount (LKR)</TableHead>
+                                        <TableRow className="bg-muted/50 hover:bg-muted/50 border-b border-border">
+                                            <TableHead className="text-[10px] font-black uppercase tracking-widest">Description</TableHead>
+                                            <TableHead className="text-right text-[10px] font-black uppercase tracking-widest">Amount (LKR)</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {(Array.isArray(selected.lines) ? selected.lines : []).map((l, idx) => (
-                                            <TableRow key={idx}>
-                                                <TableCell>{l.description}</TableCell>
-                                                <TableCell className="text-right">{Number(l.amount || 0).toLocaleString()}</TableCell>
+                                            <TableRow key={idx} className="border-border/60">
+                                                <TableCell className="font-medium">{l.description}</TableCell>
+                                                <TableCell className="text-right font-mono tabular-nums">{Number(l.amount || 0).toLocaleString()}</TableCell>
                                             </TableRow>
                                         ))}
-                                        <TableRow>
-                                            <TableCell className="font-black">Total</TableCell>
-                                            <TableCell className="text-right font-black">
+                                        <TableRow className="bg-primary/5 border-t-2 border-primary/25">
+                                            <TableCell className="font-black">Total{getSettlementLabel(selected) ? ` (${getSettlementLabel(selected)})` : ''}</TableCell>
+                                            <TableCell className="text-right font-black font-mono tabular-nums text-base text-primary">
                                                 {Number(getDisplayTotal(selected) || 0).toLocaleString()}
-                                                {getSettlementLabel(selected) ? ` (${getSettlementLabel(selected)})` : ''}
                                             </TableCell>
                                         </TableRow>
                                     </TableBody>
@@ -613,8 +780,17 @@ const Invoices = () => {
                         </div>
                     )}
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter className="gap-2 flex-wrap">
                         <Button variant="outline" onClick={() => setDetailOpen(false)}>Close</Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                            onClick={() => selected && sendInvoiceWhatsApp(selected)}
+                            disabled={!selected || detailLoading || whatsappSending}
+                        >
+                            <MessageCircle className="w-4 h-4 mr-2" /> WhatsApp Web
+                        </Button>
                         <Button variant="secondary" onClick={printInvoice} disabled={!selected || detailLoading}>
                             <Printer className="w-4 h-4 mr-2" /> Print / Save PDF
                         </Button>
