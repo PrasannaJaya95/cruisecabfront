@@ -1,0 +1,78 @@
+import { useState, useEffect } from 'react';
+import api, { resolveServerUrl } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+import { Button } from '@/components/ui/button';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { format, startOfDay, addDays } from "date-fns";
+import {
+    Receipt,
+    CheckCircle,
+    Clock,
+    RefreshCcw,
+    Eye,
+    Plus,
+    AlertCircle,
+    Info,
+    Search,
+    Trash2,
+    Calendar as CalendarIcon,
+    Filter,
+    MessageCircle,
+    ExternalLink,
+    Mail,
+    Download,
+    Printer
+} from 'lucide-react';
+import { DOCUMENT_PRINT_STYLES, hasPrintBrandContent } from '../lib/printDocumentTheme';
+import {
+    normalizePhoneForWhatsApp,
+    openWhatsAppWeb,
+} from '../lib/whatsappWeb';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+    DialogFooter
+} from "@/components/ui/dialog";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+
+const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+];
+
+function formatBillPeriodLabel(bill) {
+    if (bill.billingType === 'SHORT_TERM' && bill.billingFrom && bill.billingTo) {
+        const a = new Date(bill.billingFrom);
+        const b = new Date(bill.billingTo);
+        return `${format(a, 'MMM d')} – ${format(b, 'MMM d, yyyy')}`;
+    }
+    return `${months[(bill.month || 1) - 1]} ${bill.year}`;
+}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import api from '../lib/api';
+import api, { resolveServerUrl } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,7 +32,6 @@ import {
     Download,
     Printer
 } from 'lucide-react';
-import api, { resolveServerUrl } from '../lib/api';
 import { DOCUMENT_PRINT_STYLES, hasPrintBrandContent } from '../lib/printDocumentTheme';
 import {
     normalizePhoneForWhatsApp,
