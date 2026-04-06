@@ -80,17 +80,30 @@ const OdometerManagement = () => {
 
     const latestByVehicle = (() => {
         const map = new Map();
-        for (const odo of odometers) {
+        
+        // Step 1: Initialize with the current known odometer from the Vehicle records
+        vehicles.forEach(v => {
+            map.set(v.id, {
+                id: `veh-${v.id}`,
+                vehicleId: v.id,
+                reading: v.lastOdometer || 0,
+                date: v.updatedAt || new Date(),
+                vehicle: v,
+                source: 'VEHICLE_MASTER_RECORD'
+            });
+        });
+
+        // Step 2: Overlay with the latest entries from the Odometer audit history
+        odometers.forEach(odo => {
             const vid = odo.vehicleId;
-            if (!vid) continue;
-            const ts = new Date(odo.date).getTime();
+            if (!vid) return;
             const existing = map.get(vid);
-            if (!existing || ts > existing.ts) {
-                map.set(vid, { ts, odo });
+            if (!existing || new Date(odo.date) > new Date(existing.date)) {
+                map.set(vid, odo);
             }
-        }
+        });
+
         return Array.from(map.values())
-            .map(v => v.odo)
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     })();
 

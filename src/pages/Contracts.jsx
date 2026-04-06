@@ -165,6 +165,11 @@ const Contracts = () => {
     };
 
     const [formData, setFormData] = useState(initialFormState);
+    
+    // Status helpers for conditional read-only fields
+    const isEditing = !!editingId;
+    const isConfirmed = isEditing && ['IN_PROGRESS', 'RETURN', 'COMPLETED'].includes(formData.status);
+    const isReturned = isEditing && ['RETURN', 'COMPLETED'].includes(formData.status);
 
     // Exchange Form State
     const [exchangeData, setExchangeData] = useState({
@@ -980,7 +985,7 @@ const Contracts = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label>Customer (Confirmed Only)</Label>
-                                    <Select disabled={isReadOnly} value={formData.customerId} onValueChange={(val) => handleChange('customerId', val)}>
+                                    <Select disabled={isReadOnly || isConfirmed} value={formData.customerId} onValueChange={(val) => handleChange('customerId', val)}>
                                         <SelectTrigger>
                                             <SelectValue placeholder="Select Customer" />
                                         </SelectTrigger>
@@ -1017,7 +1022,7 @@ const Contracts = () => {
                                             onChange={(e) => setContractVehicleSearch(e.target.value)}
                                         />
                                     </div>
-                                    <Select disabled={isReadOnly} value={formData.vehicleId} onValueChange={(val) => handleChange('vehicleId', val)}>
+                                    <Select disabled={isReadOnly || isConfirmed} value={formData.vehicleId} onValueChange={(val) => handleChange('vehicleId', val)}>
                                         <SelectTrigger>
                                             <SelectValue placeholder="Select Vehicle" />
                                         </SelectTrigger>
@@ -1055,16 +1060,16 @@ const Contracts = () => {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Actual Return Date</Label>
-                                        <Input disabled={isReadOnly} type="date" value={formData.actualReturnDate} onChange={e => handleChange('actualReturnDate', e.target.value)} />
+                                        <Input disabled={isReadOnly || isConfirmed} type="date" value={formData.actualReturnDate} onChange={e => handleChange('actualReturnDate', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Actual Return Time</Label>
-                                        <Input disabled={isReadOnly} type="time" value={formData.actualReturnTime} onChange={e => handleChange('actualReturnTime', e.target.value)} />
+                                        <Input disabled={isReadOnly || isConfirmed} type="time" value={formData.actualReturnTime} onChange={e => handleChange('actualReturnTime', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Start Odometer</Label>
                                         <Input
-                                            disabled={isReadOnly}
+                                            disabled={isReadOnly || isReturned}
                                             type="number"
                                             value={formData.startOdometer}
                                             onChange={e => handleChange('startOdometer', e.target.value)}
@@ -1076,19 +1081,19 @@ const Contracts = () => {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Pick-up Date</Label>
-                                        <Input disabled={isReadOnly} type="date" value={formData.pickupDate} onChange={e => handleChange('pickupDate', e.target.value)} />
+                                        <Input disabled={isReadOnly || isConfirmed} type="date" value={formData.pickupDate} onChange={e => handleChange('pickupDate', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Pick-up Time</Label>
-                                        <Input disabled={isReadOnly} type="time" value={formData.pickupTime} onChange={e => handleChange('pickupTime', e.target.value)} />
+                                        <Input disabled={isReadOnly || isConfirmed} type="time" value={formData.pickupTime} onChange={e => handleChange('pickupTime', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Drop-off Date</Label>
-                                        <Input disabled={isReadOnly} type="date" value={formData.dropoffDate} onChange={e => handleChange('dropoffDate', e.target.value)} />
+                                        <Input disabled={isReadOnly || isConfirmed} type="date" value={formData.dropoffDate} onChange={e => handleChange('dropoffDate', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Drop-off Time</Label>
-                                        <Input disabled={isReadOnly} type="time" value={formData.dropoffTime} onChange={e => handleChange('dropoffTime', e.target.value)} />
+                                        <Input disabled={isReadOnly || isConfirmed} type="time" value={formData.dropoffTime} onChange={e => handleChange('dropoffTime', e.target.value)} />
                                     </div>
                                 </div>
                             )}
@@ -1114,7 +1119,7 @@ const Contracts = () => {
                                 <div className="space-y-2">
                                     <Label>Applied Daily Rate (LKR)</Label>
                                     <Input
-                                        disabled={isReadOnly}
+                                        disabled={isReadOnly || isConfirmed}
                                         type="number"
                                         placeholder="0.00"
                                         value={formData.appliedDailyRate}
@@ -1129,7 +1134,7 @@ const Contracts = () => {
                                 <div className="space-y-2">
                                     <Label>Security Deposit</Label>
                                     <Input
-                                        disabled={isReadOnly}
+                                        disabled={isReadOnly || isConfirmed}
                                         type="number"
                                         placeholder="0.00"
                                         value={formData.securityDeposit}
@@ -1140,7 +1145,7 @@ const Contracts = () => {
                                     <div className="space-y-2">
                                         <Label>Start Odometer</Label>
                                         <Input
-                                            disabled={isReadOnly}
+                                            disabled={isReadOnly || isReturned}
                                             type="number"
                                             value={formData.startOdometer}
                                             onChange={e => handleChange('startOdometer', e.target.value)}
@@ -1616,16 +1621,16 @@ const Contracts = () => {
                             <div className="grid grid-cols-3 gap-4">
                                 <div className="space-y-2">
                                     <Label>Daily KM Limit</Label>
-                                    <Input disabled={isReadOnly} type="number" value={formData.dailyKmLimit} onChange={e => handleChange('dailyKmLimit', e.target.value)} />
+                                    <Input disabled={isReadOnly || isConfirmed} type="number" value={formData.dailyKmLimit} onChange={e => handleChange('dailyKmLimit', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label>Total Allocated KM</Label>
-                                    <Input disabled={isReadOnly} type="number" value={formData.allocatedKm} onChange={e => handleChange('allocatedKm', e.target.value)} />
+                                    <Input disabled={isReadOnly || isConfirmed} type="number" value={formData.allocatedKm} onChange={e => handleChange('allocatedKm', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label>Extra KM Charge (LKR)</Label>
                                         <Input
-                                            disabled={isReadOnly || formData.status === 'RETURN' || formData.status === 'COMPLETED'}
+                                            disabled={isReadOnly || isConfirmed}
                                             type="number"
                                             value={formData.extraMileageCharge}
                                             onChange={e => handleChange('extraMileageCharge', e.target.value)}

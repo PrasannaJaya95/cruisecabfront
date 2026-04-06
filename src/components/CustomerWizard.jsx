@@ -498,10 +498,12 @@ const CustomerWizard = ({
                             {initialData ? 'Edit Customer' : 'Customer Wizard'}
                         </span>
                         <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest px-4 py-2 bg-secondary/50 rounded-full">
-                            Step {currentStep + 1} / {steps.length}
+                            Step {currentStep + 1} of {steps.length}
                         </span>
                     </DialogTitle>
-                    <DialogDescription className="sr-only">Multi-step customer registration form</DialogDescription>
+                    <DialogDescription className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mt-1">
+                        {initialData ? 'Update existing customer registration details' : 'Complete the multi-step form to register a new customer'}
+                    </DialogDescription>
                 </DialogHeader>
 
                 {/* Progress Bar */}

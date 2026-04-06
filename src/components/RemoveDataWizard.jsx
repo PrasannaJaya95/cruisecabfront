@@ -58,6 +58,8 @@ const RemoveDataWizard = ({ open, onOpenChange }) => {
                         style={{ width: `${(step / 3) * 100}%` }}
                     />
                 </div>
+                <DialogTitle className="sr-only">Cleanup Wizard: Remove Demo Data</DialogTitle>
+                <DialogDescription className="sr-only">Identifies and removes simulation records from the active system state.</DialogDescription>
 
                 <div className="p-8 space-y-6">
                     {step === 1 && (

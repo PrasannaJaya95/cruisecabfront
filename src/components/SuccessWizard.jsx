@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Plus, X, ArrowRight } from 'lucide-react';
 
@@ -41,23 +41,28 @@ const SuccessWizard = ({ open, onOpenChange, title, message, onAction }) => {
                     </motion.div>
 
                     {/* Text Content */}
-                    <div className="space-y-2">
-                        <motion.h2
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.2 }}
-                            className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400"
-                        >
-                            {title || "Success!"}
-                        </motion.h2>
-                        <motion.p
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.3 }}
-                            className="text-slate-400 max-w-[280px] mx-auto"
-                        >
-                            {message || "The operation was completed successfully."}
-                        </motion.p>
+                    <div className="space-y-0">
+                        <DialogHeader className="flex flex-col items-center justify-center p-0 space-y-0">
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.2 }}
+                            >
+                                <DialogTitle className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 text-center">
+                                    {title || "Success!"}
+                                </DialogTitle>
+                            </motion.div>
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.3 }}
+                                className="mt-2"
+                            >
+                                <DialogDescription className="text-slate-400 max-w-[280px] mx-auto text-center">
+                                    {message || "The operation was completed successfully."}
+                                </DialogDescription>
+                            </motion.div>
+                        </DialogHeader>
                     </div>
 
                     {/* Actions */}

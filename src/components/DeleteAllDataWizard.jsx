@@ -65,6 +65,8 @@ const DeleteAllDataWizard = ({ open, onOpenChange }) => {
                         style={{ width: `${(step / 4) * 100}%` }}
                     />
                 </div>
+                <DialogTitle className="sr-only">Delete All System Data</DialogTitle>
+                <DialogDescription className="sr-only">Permanent Wiping Protocol for purging all business records from the ecosystem.</DialogDescription>
 
                 <div className="p-8 space-y-6">
                     {step === 1 && (

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -202,6 +202,9 @@ const PaymentWizard = ({ open, onOpenChange, vehicles, customers, onSubmit, load
                         <DialogTitle className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
                             New Payment
                         </DialogTitle>
+                        <DialogDescription className="text-xs text-slate-400 mt-1">
+                            Register a new payment for a vehicle booking.
+                        </DialogDescription>
                     </DialogHeader>
 
                     {/* Progress Steps */}

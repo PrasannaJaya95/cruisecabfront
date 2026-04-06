@@ -25,8 +25,19 @@ import {
     Search,
     Trash2,
     Calendar as CalendarIcon,
-    Filter
+    Filter,
+    MessageCircle,
+    ExternalLink,
+    Mail,
+    Download,
+    Printer
 } from 'lucide-react';
+import api, { resolveServerUrl } from '../lib/api';
+import { DOCUMENT_PRINT_STYLES, hasPrintBrandContent } from '../lib/printDocumentTheme';
+import {
+    normalizePhoneForWhatsApp,
+    openWhatsAppWeb,
+} from '../lib/whatsappWeb';
 import {
     Dialog,
     DialogContent,
@@ -105,6 +116,7 @@ export default function VendorBills() {
     const [isViewOpen, setIsViewOpen] = useState(false);
     const [selectedBill, setSelectedBill] = useState(null);
     const [editData, setEditData] = useState(null);
+    const [whatsappSending, setWhatsappSending] = useState(false);
 
     const handleViewBill = (bill) => {
         setSelectedBill(bill);
@@ -338,6 +350,185 @@ export default function VendorBills() {
         } finally {
             setDeletingId(null);
         }
+    };
+
+    const sendVendorBillViaWhatsApp = async (bill) => {
+        if (!bill?.id) return;
+        const phoneRaw = bill.vendor?.vendorDetails?.phone;
+        const phone = normalizePhoneForWhatsApp(phoneRaw);
+        if (!phone) {
+            alert('No mobile number on file for this vendor. Please add a phone number in Vendor Management.');
+            return;
+        }
+        try {
+            setWhatsappSending(true);
+            const { data } = await api.get(`/vendor-bills/${bill.id}/share-link`);
+            const shareUrl = data?.shareUrl;
+            if (!shareUrl) {
+                alert('Could not create sharing link. Try again.');
+                return;
+            }
+
+            const vendorName = bill.vendor?.name || 'Vendor';
+            const billNo = bill.billNumber || 'Bill';
+            const total = Number(bill.totalAmount || 0);
+
+            const message = [
+                `Hello ${vendorName},`,
+                '',
+                `Your settlement bill *${billNo}* is ready.`,
+                `Total Amount (LKR): *${total.toLocaleString()}*`,
+                '',
+                `You can view the full details here: ${shareUrl}`,
+                '',
+                'Regards.'
+            ].join('\n');
+
+            openWhatsAppWeb(phone, message);
+        } catch (e) {
+            console.error(e);
+            alert(e.response?.data?.message || 'Failed to open WhatsApp');
+        } finally {
+            setWhatsappSending(false);
+        }
+    };
+
+    const printVendorBill = async (bill) => {
+        if (!bill) return;
+
+        const escapeHtml = (str) => String(str ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        const formatAddressHtml = (addr) => {
+            const safe = escapeHtml(addr ?? '');
+            return safe.replace(/\n/g, '<br/>');
+        };
+
+        let companyName = '';
+        let companyAddress = '';
+        let companyLogo = null;
+        let companyContactNumber = '';
+        let companyWhatsAppNumber = '';
+        try {
+            const [nameRes, addressRes, logoRes, contactRes, whatsappRes] = await Promise.all([
+                api.get('/settings/company_name'),
+                api.get('/settings/company_address'),
+                api.get('/settings/company_logo'),
+                api.get('/settings/company_contact_number'),
+                api.get('/settings/company_whatsapp_number'),
+            ]);
+
+            companyName = nameRes.data.value !== 'false' ? (nameRes.data.value || '') : '';
+            companyAddress = addressRes.data.value !== 'false' ? (addressRes.data.value || '') : '';
+            const rawLogo = logoRes.data.value !== 'false' ? (logoRes.data.value || null) : null;
+            companyLogo = rawLogo ? resolveServerUrl(rawLogo) : null;
+            companyContactNumber = contactRes.data.value !== 'false' ? (contactRes.data.value || '') : '';
+            companyWhatsAppNumber = whatsappRes.data.value !== 'false' ? (whatsappRes.data.value || '') : '';
+        } catch (e) {
+            console.error('Failed to load company profile for print:', e);
+        }
+
+        const showBrand = hasPrintBrandContent({
+            logoUrl: companyLogo,
+            name: companyName,
+            address: companyAddress,
+            contact: companyContactNumber,
+            whatsapp: companyWhatsAppNumber,
+        });
+        const logoImg = companyLogo
+            ? `<img class="doc-logo" src="${escapeHtml(companyLogo)}" alt="" />`
+            : '';
+        const nameBlock = companyName.trim()
+            ? `<div class="doc-company-name">${escapeHtml(companyName.trim())}</div>`
+            : companyLogo
+                ? `<div class="doc-company-name" style="font-size:16px;color:var(--muted);">Your partner in cruise cab</div>`
+                : '';
+        const addrBlock = companyAddress.trim()
+            ? `<div class="doc-company-muted">${formatAddressHtml(companyAddress)}</div>`
+            : '';
+        const chips = [];
+        if (companyContactNumber.trim()) {
+            chips.push(`<span class="doc-chip">Contact ${escapeHtml(companyContactNumber.trim())}</span>`);
+        }
+        if (companyWhatsAppNumber.trim()) {
+            chips.push(`<span class="doc-chip">WhatsApp ${escapeHtml(companyWhatsAppNumber.trim())}</span>`);
+        }
+        const chipRow = chips.length ? `<div class="doc-chip-row">${chips.join('')}</div>` : '';
+        const brandSection = showBrand
+            ? `<div class="doc-brand-row">${logoImg}<div>${nameBlock}${addrBlock}${chipRow}</div></div>`
+            : '';
+
+        const billNo = bill.billNumber || 'UNASSIGNED';
+        const period = formatBillPeriodLabel(bill);
+        const vendorName = bill.vendor?.name || 'Unknown';
+        const plate = bill.vehicle?.licensePlate || '';
+        const items = Array.isArray(bill.items) ? bill.items : [];
+        const total = Number(bill.totalAmount || 0);
+
+        const itemsHtml = items.map((item) => `
+            <tr><td>${escapeHtml(item.description)}</td><td>${Number(item.amount).toLocaleString()}</td></tr>`).join('');
+
+        const html = `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Vendor Settlement - ${escapeHtml(billNo)}</title>
+  <style>${DOCUMENT_PRINT_STYLES}</style>
+</head>
+<body>
+  <div class="doc">
+    <div class="doc-topbar"></div>
+    <div class="doc-inner">
+      ${brandSection}
+      <div class="doc-headline">
+        <div>
+          <div class="doc-kind">Vendor Settlement Bill</div>
+          <div class="doc-main-id">${escapeHtml(billNo)}</div>
+          <div class="doc-meta">Period <b>${escapeHtml(period)}</b> · Generated <b>${new Date().toLocaleString()}</b></div>
+        </div>
+        <div class="doc-pill">${escapeHtml(bill.status)}</div>
+      </div>
+
+      <div class="doc-cards">
+        <div class="doc-card">
+          <div class="doc-card-label">Vendor</div>
+          <div class="doc-card-value">${escapeHtml(vendorName)}</div>
+          <div class="doc-card-sub">${escapeHtml(bill.vendor?.email || '')}</div>
+        </div>
+        <div class="doc-card">
+          <div class="doc-card-label">Vehicle Details</div>
+          <div class="doc-card-value">${escapeHtml(plate)}</div>
+          <div class="doc-card-sub">${escapeHtml(bill.vehicle?.vehicleModel?.brand?.name || '')} ${escapeHtml(bill.vehicle?.vehicleModel?.name || '')}</div>
+        </div>
+      </div>
+
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead>
+            <tr><th>Description</th><th>Amount (LKR)</th></tr>
+          </thead>
+          <tbody>${itemsHtml}</tbody>
+          <tfoot>
+            <tr><td>Total Payable Amount</td><td>${total.toLocaleString()}</td></tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="doc-foot">This is a system generated settlement document. Use browser print (Save as PDF) for digital copies.</div>
+    </div>
+  </div>
+  <script>window.onload = () => { window.print(); }</script>
+</body>
+</html>`;
+
+        const win = window.open('', '_blank');
+        win.document.write(html);
+        win.document.close();
     };
 
     const totalBillAmount = wizardData.items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
@@ -744,7 +935,11 @@ export default function VendorBills() {
                             </TableRow>
                         ) : (
                             bills.map((bill) => (
-                                <TableRow key={bill.id} className="border-border group hover:bg-secondary/10 transition-colors">
+                                <TableRow 
+                                    key={bill.id} 
+                                    className="border-border group hover:bg-secondary/10 transition-colors cursor-pointer"
+                                    onClick={() => handleViewBill(bill)}
+                                >
                                     <TableCell className="py-6 pl-8">
                                         <div className="flex flex-col">
                                             <span className="font-black text-primary tracking-tighter text-sm uppercase">{bill.billNumber || 'UNASSIGNED'}</span>
@@ -791,16 +986,37 @@ export default function VendorBills() {
                                         )}
                                     </TableCell>
                                     <TableCell className="py-6 text-right pr-8">
-                                        <div className="flex justify-end gap-2 items-center flex-wrap">
+                                        <div className="flex justify-end gap-2 items-center flex-wrap" onClick={(e) => e.stopPropagation()}>
                                             {bill.status === 'PENDING' && (
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => updateBillStatus(bill.id, 'PAID')}
-                                                    className="rounded-xl border-green-500/20 text-green-600 hover:bg-green-500/10 font-black text-[9px] uppercase tracking-widest h-9 px-4 shadow-sm"
-                                                >
-                                                    Mark Paid
-                                                </Button>
+                                                <>
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => sendVendorBillViaWhatsApp(bill)}
+                                                        disabled={whatsappSending}
+                                                        className="h-10 w-10 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl"
+                                                        title="Send via WhatsApp"
+                                                    >
+                                                        <MessageCircle className="w-5 h-5" />
+                                                    </Button>
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => printVendorBill(bill)}
+                                                        className="h-10 w-10 text-slate-600 hover:text-slate-700 hover:bg-slate-50 rounded-xl"
+                                                        title="Print Settlement"
+                                                    >
+                                                        <Printer className="w-5 h-5" />
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => updateBillStatus(bill.id, 'PAID')}
+                                                        className="rounded-xl border-green-500/20 text-green-600 hover:bg-green-500/10 font-black text-[9px] uppercase tracking-widest h-9 px-4 shadow-sm"
+                                                    >
+                                                        Mark Paid
+                                                    </Button>
+                                                </>
                                             )}
                                             {canUserDeleteBill(bill) && (
                                                 <Button
@@ -1088,32 +1304,54 @@ export default function VendorBills() {
                         </div>
                     )}
 
-                    <DialogFooter className="mt-8 gap-3 flex-wrap">
-                        {selectedBill && canUserDeleteBill(selectedBill) && (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => deleteVendorBill(selectedBill)}
-                                disabled={deletingId === selectedBill.id || loading}
-                                className="rounded-2xl font-black uppercase tracking-widest h-12 text-[10px] border-rose-500/40 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                            >
-                                <Trash2 className="w-4 h-4 mr-2 inline" />
-                                {deletingId === selectedBill.id ? 'Deleting…' : 'Delete bill'}
+                        <DialogFooter className="mt-8 gap-3 flex-wrap">
+                            {selectedBill && (
+                                <>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => printVendorBill(selectedBill)}
+                                        className="rounded-2xl font-black uppercase tracking-widest h-12 text-[10px] flex-1 border-slate-500/40 text-slate-700 hover:bg-slate-50"
+                                    >
+                                        <Printer className="w-4 h-4 mr-2 inline" />
+                                        Print Bill
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="rounded-xl font-bold uppercase tracking-widest text-[10px] h-12 flex-1 border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
+                                        onClick={() => sendVendorBillViaWhatsApp(selectedBill)}
+                                        disabled={whatsappSending}
+                                    >
+                                        <MessageCircle className="w-4 h-4 mr-2" /> WhatsApp
+                                    </Button>
+                                    {canUserDeleteBill(selectedBill) && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={() => deleteVendorBill(selectedBill)}
+                                            disabled={deletingId === selectedBill.id || loading}
+                                            className="rounded-2xl font-black uppercase tracking-widest h-12 text-[10px] border-rose-500/40 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                                        >
+                                            <Trash2 className="w-4 h-4 mr-2 inline" />
+                                            {deletingId === selectedBill.id ? 'Deleting…' : 'Delete'}
+                                        </Button>
+                                    )}
+                                </>
+                            )}
+                            <Button onClick={() => setIsViewOpen(false)} variant="outline" className="flex-1 rounded-2xl font-black uppercase tracking-widest h-12 text-[10px]">
+                                {selectedBill?.status === 'PENDING' ? 'Discard' : 'Close'}
                             </Button>
-                        )}
-                        <Button onClick={() => setIsViewOpen(false)} variant="outline" className="flex-1 rounded-2xl font-black uppercase tracking-widest h-12 text-[10px]">
-                            {selectedBill?.status === 'PENDING' ? 'Discard' : 'Close'}
-                        </Button>
-                        {selectedBill?.status === 'PENDING' && (
-                            <Button
-                                onClick={handleUpdateBill}
-                                disabled={loading || editData?.items.some(i => !i.description || !i.amount)}
-                                className="flex-[2] bg-primary text-white font-black uppercase tracking-widest h-12 rounded-2xl shadow-lg shadow-primary/20"
-                            >
-                                {loading ? 'Updating...' : 'Save Changes'}
-                            </Button>
-                        )}
-                    </DialogFooter>
+                            {selectedBill?.status === 'PENDING' && (
+                                <Button
+                                    onClick={handleUpdateBill}
+                                    disabled={loading || editData?.items.some(i => !i.description || !i.amount)}
+                                    className="flex-[2] bg-primary text-white font-black uppercase tracking-widest h-12 rounded-2xl shadow-lg shadow-primary/20"
+                                >
+                                    {loading ? 'Updating...' : 'Save Changes'}
+                                </Button>
+                            )}
+                        </DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>

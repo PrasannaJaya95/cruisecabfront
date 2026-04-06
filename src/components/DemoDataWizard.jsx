@@ -61,6 +61,8 @@ const DemoDataWizard = ({ open, onOpenChange }) => {
                         style={{ width: `${(step / 3) * 100}%` }}
                     />
                 </div>
+                <DialogTitle className="sr-only">Demo Data Loading Wizard</DialogTitle>
+                <DialogDescription className="sr-only">Populates the rental system with simulated business data for testing.</DialogDescription>
 
                 <div className="p-8 space-y-6">
                     {step === 1 && (
