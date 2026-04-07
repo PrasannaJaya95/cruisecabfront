@@ -17,6 +17,7 @@ const DeleteAllDataWizard = ({ open, onOpenChange }) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [confirmationText, setConfirmationText] = useState('');
+    const [password, setPassword] = useState('');
 
     const handleNext = () => setStep(prev => prev + 1);
     const handleBack = () => setStep(prev => prev - 1);
@@ -26,15 +27,24 @@ const DeleteAllDataWizard = ({ open, onOpenChange }) => {
             setError('Please type the confirmation phrase exactly.');
             return;
         }
+        if (!password) {
+            setError('Administrator password is required.');
+            return;
+        }
 
         setLoading(true);
         setError(null);
         try {
-            await api.delete('/system/wipe-all-data');
+            await api.delete('/system/wipe-all-data', { data: { password } });
             setStep(4);
         } catch (err) {
             console.error('System wipe error:', err);
-            setError(err.response?.data?.message || 'Failed to wipe system data');
+            setError(err.response?.data?.message || 'Failed to wipe system data. Incorrect password?');
+            // If it's a password error, don't move to step 4, just show error
+            if (err.response?.status === 401) {
+                setLoading(false);
+                return;
+            }
             setStep(4);
         } finally {
             setLoading(false);
@@ -46,6 +56,7 @@ const DeleteAllDataWizard = ({ open, onOpenChange }) => {
         setError(null);
         setLoading(false);
         setConfirmationText('');
+        setPassword('');
     };
 
     const handleClose = () => {
@@ -155,6 +166,16 @@ const DeleteAllDataWizard = ({ open, onOpenChange }) => {
                                     onChange={(e) => setConfirmationText(e.target.value)}
                                     autoFocus
                                 />
+                                <div style={{ transitionDelay: '100ms' }}>
+                                    <Label className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Administrator Password</Label>
+                                    <input
+                                        type="password"
+                                        className="w-full h-14 bg-secondary/30 border border-border rounded-2xl px-6 text-base font-bold text-foreground focus:ring-4 focus:ring-rose-500/10 transition-all outline-none mt-2"
+                                        placeholder="Enter Super Admin Password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                    />
+                                </div>
                                 {error && (
                                     <p className="text-xs font-bold text-rose-600 text-center animate-pulse">{error}</p>
                                 )}
@@ -238,10 +259,10 @@ const DeleteAllDataWizard = ({ open, onOpenChange }) => {
                                 </Button>
                                 <Button
                                     onClick={handleExecute}
-                                    disabled={confirmationText.toLowerCase() !== 'delete all data'}
+                                    disabled={loading || confirmationText.toLowerCase() !== 'delete all data' || !password}
                                     className="h-14 px-8 rounded-2xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:hover:bg-rose-600 text-white font-black uppercase tracking-widest text-xs gap-2 shadow-lg shadow-rose-600/20 font-calibri-bold"
                                 >
-                                    Execute Wipe <Flame className="w-4 h-4" />
+                                    {loading ? 'Wiping...' : 'Execute Wipe'} <Flame className="w-4 h-4" />
                                 </Button>
                             </>
                         )}

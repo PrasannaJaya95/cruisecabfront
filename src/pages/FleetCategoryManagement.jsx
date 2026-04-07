@@ -16,8 +16,8 @@ const FleetCategoryManagement = () => {
     const [sortOrder, setSortOrder] = useState('0');
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState(null);
-    const [deleteId, setDeleteId] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [saving, setSaving] = useState(false);
 
     const fetchCategories = async () => {
         try {
@@ -38,6 +38,7 @@ const FleetCategoryManagement = () => {
         const trimmed = name.trim();
         if (!trimmed) return;
         try {
+            setSaving(true);
             const payload = { name: trimmed, sortOrder: parseInt(sortOrder, 10) || 0 };
             if (editing) {
                 await api.put(`/fleet/categories/${editing.id}`, payload);
@@ -50,7 +51,11 @@ const FleetCategoryManagement = () => {
             setOpen(false);
             fetchCategories();
         } catch (error) {
-            alert(error.response?.data?.error || 'Failed to save category');
+            console.error('Save failed:', error);
+            const errorMsg = error.response?.data?.error || error.response?.data?.message || 'Failed to save category';
+            alert(errorMsg);
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -136,8 +141,19 @@ const FleetCategoryManagement = () => {
                                 </div>
                             </div>
                             <DialogFooter>
-                                <Button type="submit" className="w-full h-16 bg-primary font-black uppercase tracking-[0.2em] text-xs rounded-2xl shadow-xl shadow-primary/20 hover:scale-[1.01] active:scale-95 transition-all">
-                                    {editing ? 'Save changes' : 'Create category'}
+                                <Button 
+                                    type="submit" 
+                                    disabled={saving}
+                                    className="w-full h-16 bg-primary font-black uppercase tracking-[0.2em] text-xs rounded-2xl shadow-xl shadow-primary/20 hover:scale-[1.01] active:scale-95 transition-all disabled:opacity-50"
+                                >
+                                    {saving ? (
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-4 w-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                            Saving...
+                                        </div>
+                                    ) : (
+                                        editing ? 'Save changes' : 'Create category'
+                                    )}
                                 </Button>
                             </DialogFooter>
                         </form>
