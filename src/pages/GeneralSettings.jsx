@@ -3,7 +3,7 @@ import api from '../lib/api';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Globe, ShieldAlert, Save, RefreshCw, Radio, CreditCard, Settings2, Wallet, Trash2, Coins, Database, Palette, ImageIcon, Flame } from 'lucide-react';
+import { Globe, ShieldAlert, Save, RefreshCw, Radio, CreditCard, Settings2, Wallet, Trash2, Coins, Database, Palette, ImageIcon, Flame, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,6 +21,12 @@ const GeneralSettings = () => {
     const [maintenanceMessage, setMaintenanceMessage] = useState('');
     const [allowLogin, setAllowLogin] = useState(false);
     const [websiteLogo, setWebsiteLogo] = useState(null);
+
+    // System Control Security State
+    const [isSystemControlVerified, setIsSystemControlVerified] = useState(false);
+    const [tempPassword, setTempPassword] = useState('');
+    const [verifying, setVerifying] = useState(false);
+    const [verifyError, setVerifyError] = useState(null);
 
     // Loyalty Points State
     const [loyaltyEnabled, setLoyaltyEnabled] = useState(false);
@@ -162,6 +168,21 @@ const GeneralSettings = () => {
             console.error('Failed to save payment settings', error);
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleVerifySystemControl = async (e) => {
+        if (e) e.preventDefault();
+        setVerifying(true);
+        setVerifyError(null);
+        try {
+            await api.post('/auth/verify-password', { password: tempPassword });
+            setIsSystemControlVerified(true);
+            setTempPassword('');
+        } catch (error) {
+            setVerifyError(error.response?.data?.message || 'Verification failed. Please check your password.');
+        } finally {
+            setVerifying(false);
         }
     };
 
@@ -683,45 +704,98 @@ const GeneralSettings = () => {
 
                 {currentUser?.role === 'SUPER_ADMIN' && (
                     <TabsContent value="system" className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                            {/* Sequence Management */}
-                            <SequenceManager />
-
-                            {/* Total System Wipe */}
-                            <Card className="bg-card border-border shadow-[0_8px_30px_rgb(0,0,0,0.02)] rounded-[2.5rem] overflow-hidden border-rose-500/20">
-                                <CardHeader className="p-10 pb-4">
-                                    <div className="flex items-center gap-5">
-                                        <div className="p-4 bg-rose-500/10 rounded-2xl border border-rose-500/10">
-                                            <ShieldAlert className="w-8 h-8 text-rose-500" />
+                        {!isSystemControlVerified ? (
+                            <div className="max-w-xl mx-auto py-20">
+                                <Card className="bg-card border-border shadow-2xl rounded-[2.5rem] overflow-hidden border-primary/20 bg-primary/5 backdrop-blur-xl">
+                                    <CardHeader className="p-10 pb-6 text-center">
+                                        <div className="mx-auto p-5 bg-primary/10 rounded-3xl border border-primary/10 w-fit mb-6">
+                                            <ShieldAlert className="w-12 h-12 text-primary" />
                                         </div>
-                                        <div>
-                                            <CardTitle className="text-3xl font-black uppercase tracking-tighter text-foreground font-calibri-bold text-rose-600">Nuclear Option</CardTitle>
-                                            <CardDescription className="font-medium text-muted-foreground font-calibri text-rose-600/60">Destructive factory reset of all business data</CardDescription>
-                                        </div>
-                                    </div>
-                                </CardHeader>
-                                <CardContent className="p-10 pt-4 space-y-8">
-                                    <div className="p-8 rounded-[2rem] bg-rose-500/5 border border-rose-500/20 space-y-4">
-                                        <p className="text-sm font-bold text-rose-700/80 leading-relaxed font-calibri">
-                                            Wiping the system will permanently delete all Vehicles, Clients, Vendor records, Bookings, Contracts, Invoices, and Ledger history. This action is irreversible.
-                                        </p>
-                                        <ul className="space-y-2 list-disc list-inside text-xs font-black uppercase tracking-widest text-rose-700/40">
-                                            <li>Purge 30,000+ data nodes</li>
-                                            <li>Reset all transaction counters</li>
-                                            <li>Synchronize registry to zero</li>
-                                        </ul>
-                                    </div>
+                                        <CardTitle className="text-3xl font-black uppercase tracking-tighter text-foreground font-calibri-bold">Security Challenge</CardTitle>
+                                        <CardDescription className="font-medium text-muted-foreground font-calibri text-lg mt-2">
+                                            Re-verify your administrator credentials to access sensitive system controls.
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="p-10 pt-0 space-y-6">
+                                        <form onSubmit={handleVerifySystemControl} className="space-y-6">
+                                            <div className="space-y-3">
+                                                <Label className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Super Admin Password</Label>
+                                                <input
+                                                    type="password"
+                                                    placeholder="••••••••••••"
+                                                    className="flex h-16 w-full rounded-2xl border border-border bg-background px-6 py-2 text-lg font-bold text-foreground focus:ring-8 focus:ring-primary/5 transition-all outline-none"
+                                                    value={tempPassword}
+                                                    onChange={(e) => setTempPassword(e.target.value)}
+                                                    autoFocus
+                                                />
+                                            </div>
 
-                                    <Button
-                                        onClick={() => setIsDeleteAllWizardOpen(true)}
-                                        className="w-full h-16 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-rose-600/20 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-3 font-calibri-bold"
-                                    >
-                                        <Trash2 className="h-5 w-5" />
-                                        Initialize Total System Wipe
-                                    </Button>
-                                </CardContent>
-                            </Card>
-                        </div>
+                                            {verifyError && (
+                                                <div className="p-4 bg-rose-500/10 border border-rose-500/10 rounded-2xl flex gap-3 items-center animate-shake">
+                                                    <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                                                    <p className="text-sm font-bold text-rose-700 font-calibri">{verifyError}</p>
+                                                </div>
+                                            )}
+
+                                            <Button
+                                                type="submit"
+                                                disabled={verifying || !tempPassword}
+                                                className="w-full h-16 bg-primary hover:bg-primary/95 text-primary-foreground font-black text-xs uppercase tracking-widest rounded-2xl shadow-xl shadow-primary/20 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-3 font-calibri-bold mt-4"
+                                            >
+                                                {verifying ? (
+                                                    <RefreshCw className="h-5 w-5 animate-spin" />
+                                                ) : (
+                                                    <>
+                                                        <ShieldAlert className="h-5 w-5" />
+                                                        Unlock System Control
+                                                    </>
+                                                )}
+                                            </Button>
+                                        </form>
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                                {/* Sequence Management */}
+                                <SequenceManager />
+
+                                {/* Total System Wipe */}
+                                <Card className="bg-card border-border shadow-[0_8px_30px_rgb(0,0,0,0.02)] rounded-[2.5rem] overflow-hidden border-rose-500/20">
+                                    <CardHeader className="p-10 pb-4">
+                                        <div className="flex items-center gap-5">
+                                            <div className="p-4 bg-rose-500/10 rounded-2xl border border-rose-500/10">
+                                                <ShieldAlert className="w-8 h-8 text-rose-500" />
+                                            </div>
+                                            <div>
+                                                <CardTitle className="text-3xl font-black uppercase tracking-tighter text-foreground font-calibri-bold text-rose-600">Nuclear Option</CardTitle>
+                                                <CardDescription className="font-medium text-muted-foreground font-calibri text-rose-600/60">Destructive factory reset of all business data</CardDescription>
+                                            </div>
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent className="p-10 pt-4 space-y-8">
+                                        <div className="p-8 rounded-[2rem] bg-rose-500/5 border border-rose-500/20 space-y-4">
+                                            <p className="text-sm font-bold text-rose-700/80 leading-relaxed font-calibri">
+                                                Wiping the system will permanently delete all Vehicles, Clients, Vendor records, Bookings, Contracts, Invoices, and Ledger history. This action is irreversible.
+                                            </p>
+                                            <ul className="space-y-2 list-disc list-inside text-xs font-black uppercase tracking-widest text-rose-700/40">
+                                                <li>Purge 30,000+ data nodes</li>
+                                                <li>Reset all transaction counters</li>
+                                                <li>Synchronize registry to zero</li>
+                                            </ul>
+                                        </div>
+
+                                        <Button
+                                            onClick={() => setIsDeleteAllWizardOpen(true)}
+                                            className="w-full h-16 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-rose-600/20 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-3 font-calibri-bold"
+                                        >
+                                            <Trash2 className="h-5 w-5" />
+                                            Initialize Total System Wipe
+                                        </Button>
+                                    </CardContent>
+                                </Card>
+                            </div>
+                        )}
                     </TabsContent>
                 )}
             </Tabs>
