@@ -18,6 +18,7 @@ const FleetCategoryManagement = () => {
     const [editing, setEditing] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [saving, setSaving] = useState(false);
+    const [deleteId, setDeleteId] = useState(null);
 
     const fetchCategories = async () => {
         try {
