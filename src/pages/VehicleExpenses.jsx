@@ -310,7 +310,7 @@ const VehicleExpenses = () => {
                                 </TableCell>
                                 <TableCell className="py-6">
                                     <div className="flex flex-col gap-1">
-                                        {expense.paidByCompany ? (
+                                        {(expense.paidByCompany || (expense.vehicle?.ownership === 'COMPANY' || !expense.vehicle?.ownership)) ? (
                                             <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-100 font-black text-[8px] uppercase tracking-widest px-2 py-0.5 w-fit">Company Paid</Badge>
                                         ) : (
                                             <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-100 font-black text-[8px] uppercase tracking-widest px-2 py-0.5 w-fit">Owner Paid</Badge>

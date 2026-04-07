@@ -170,6 +170,7 @@ const Contracts = () => {
     const isEditing = !!editingId;
     const isConfirmed = isEditing && ['IN_PROGRESS', 'RETURN', 'COMPLETED'].includes(formData.status);
     const isReturned = isEditing && ['RETURN', 'COMPLETED'].includes(formData.status);
+    const isCompletedStatus = isEditing && formData.status === 'COMPLETED';
 
     // Exchange Form State
     const [exchangeData, setExchangeData] = useState({
@@ -1060,11 +1061,11 @@ const Contracts = () => {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label>Actual Return Date</Label>
-                                        <Input disabled={isReadOnly || isConfirmed} type="date" value={formData.actualReturnDate} onChange={e => handleChange('actualReturnDate', e.target.value)} />
+                                        <Input disabled={isReadOnly || isCompletedStatus} type="date" value={formData.actualReturnDate} onChange={e => handleChange('actualReturnDate', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Actual Return Time</Label>
-                                        <Input disabled={isReadOnly || isConfirmed} type="time" value={formData.actualReturnTime} onChange={e => handleChange('actualReturnTime', e.target.value)} />
+                                        <Input disabled={isReadOnly || isCompletedStatus} type="time" value={formData.actualReturnTime} onChange={e => handleChange('actualReturnTime', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Start Odometer</Label>
@@ -1103,11 +1104,11 @@ const Contracts = () => {
                                 <div className="grid grid-cols-2 gap-4 pt-2">
                                     <div className="space-y-2">
                                         <Label>Actual Return Date</Label>
-                                        <Input disabled={isReadOnly} type="date" value={formData.actualReturnDate} onChange={e => handleChange('actualReturnDate', e.target.value)} />
+                                        <Input disabled={isReadOnly || isCompletedStatus} type="date" value={formData.actualReturnDate} onChange={e => handleChange('actualReturnDate', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Actual Return Time</Label>
-                                        <Input disabled={isReadOnly} type="time" value={formData.actualReturnTime} onChange={e => handleChange('actualReturnTime', e.target.value)} />
+                                        <Input disabled={isReadOnly || isCompletedStatus} type="time" value={formData.actualReturnTime} onChange={e => handleChange('actualReturnTime', e.target.value)} />
                                     </div>
                                 </div>
                             )}
@@ -1156,7 +1157,7 @@ const Contracts = () => {
                                     <div className="space-y-2">
                                         <Label>Actual Returned Odometer</Label>
                                         <Input
-                                            disabled={isReadOnly}
+                                            disabled={isReadOnly || isCompletedStatus}
                                             type="number"
                                             value={formData.endOdometer}
                                             onChange={e => handleChange('endOdometer', e.target.value)}
