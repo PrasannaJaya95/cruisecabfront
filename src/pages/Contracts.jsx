@@ -1822,28 +1822,29 @@ const Contracts = () => {
                                         const scheduledEnd = combineDateAndTime(formData.dropoffDate, formData.dropoffTime);
                                         const actualEnd = combineDateAndTime(formData.actualReturnDate, formData.actualReturnTime);
 
+                                        let overtimeMinutesCeil = 0;
                                         if (scheduledEnd && actualEnd && actualEnd.getTime() > scheduledEnd.getTime()) {
-                                            const overtimeMinutesCeil = Math.ceil((actualEnd.getTime() - scheduledEnd.getTime()) / (1000 * 60));
+                                            overtimeMinutesCeil = Math.ceil((actualEnd.getTime() - scheduledEnd.getTime()) / (1000 * 60));
                                             const extraDays = Math.floor(overtimeMinutesCeil / 1440);
                                             const remMinutes = overtimeMinutesCeil - extraDays * 1440;
 
                                             extraDayCharge = rate * extraDays;
                                             extraTimeRemainderCharge = remMinutes > 0 ? rate * (remMinutes / 1440) : 0;
-
-                                            // Mileage covered by late time (dailyKmLimit proportionally)
-                                            const dailyKmLimit = Number(formData.dailyKmLimit) || 0;
-                                            const allocatedKmScheduled = Number(formData.allocatedKm) || 0;
-                                            const extraCoverageKm = Math.round(dailyKmLimit * (overtimeMinutesCeil / 1440));
-                                            const coveredKm = allocatedKmScheduled + extraCoverageKm;
-
-                                            const startOdo = Number(formData.startOdometer) || 0;
-                                            const endOdo = Number(formData.endOdometer) || startOdo;
-                                            const usedKm = Math.max(0, endOdo - startOdo);
-
-                                            const extraKmRemaining = Math.max(0, usedKm - coveredKm);
-                                            const extraKmRatePerKm = Number(formData.extraMileageCharge) || 0;
-                                            extraKmCost = extraKmRemaining * extraKmRatePerKm;
                                         }
+
+                                        // Calculate mileage independently, but include coverage from late return time if any
+                                        const dailyKmLimit = Number(formData.dailyKmLimit) || 0;
+                                        const allocatedKmScheduled = Number(formData.allocatedKm) || 0;
+                                        const extraCoverageKm = Math.round(dailyKmLimit * (overtimeMinutesCeil / 1440));
+                                        const coveredKm = allocatedKmScheduled + extraCoverageKm;
+
+                                        const startOdo = Number(formData.startOdometer) || 0;
+                                        const endOdo = Number(formData.endOdometer) || startOdo;
+                                        const usedKm = Math.max(0, endOdo - startOdo);
+
+                                        const extraKmRemaining = Math.max(0, usedKm - coveredKm);
+                                        const extraKmRatePerKm = Number(formData.extraMileageCharge) || 0;
+                                        extraKmCost = extraKmRemaining * extraKmRatePerKm;
                                     }
 
                                     // Upfront Payment Summary total should NOT include late-return extra charges.
