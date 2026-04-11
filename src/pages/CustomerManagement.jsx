@@ -188,8 +188,20 @@ const CustomerManagement = () => {
         setOpen(true);
     };
 
+    const handleCreateNew = () => {
+        console.log('CustomerManagement: handleCreateNew - Initializing fresh state');
+        resetForm();
+        setOpen(true);
+    };
+
     const handleWizardSubmit = async (wizardData, wizardFiles, wizardType, status = 'DRAFT') => {
-        console.log('CustomerManagement: handleWizardSubmit received:', { wizardType, status, wizardData });
+        const mode = editingId ? 'UPDATE' : 'CREATE';
+        console.log(`CustomerManagement: handleWizardSubmit starting [MODE: ${mode}]`, { 
+            editingId, 
+            wizardType, 
+            status 
+        });
+        
         const payload = {
             ...wizardData,
             type: wizardType.toUpperCase(),
@@ -222,7 +234,7 @@ const CustomerManagement = () => {
             Object.assign(payload, uploadedUrls);
 
             if (editingId) {
-                console.log(`CustomerManagement: Updating customer ${editingId}...`);
+                console.log(`CustomerManagement: [UPDATE MODE] Updating customer ${editingId}...`);
                 await api.put(`/clients/${editingId}`, payload);
                 console.log('CustomerManagement: Update successful.');
                 setSuccessMessage({
@@ -400,11 +412,9 @@ const CustomerManagement = () => {
                     <p className="text-muted-foreground font-medium text-lg italic">"Manage and identify your elite clientele with precision."</p>
                 </div>
                 <Dialog open={open} onOpenChange={(val) => !val && handleClose()}>
-                    <DialogTrigger asChild>
-                        <Button className="bg-primary hover:bg-primary/95 text-primary-foreground font-black px-8 py-7 rounded-2xl shadow-2xl shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-3 uppercase tracking-widest text-xs" onClick={() => setOpen(true)}>
-                            <Plus className="h-5 w-5" /> Add New Customer
-                        </Button>
-                    </DialogTrigger>
+                    <Button className="bg-primary hover:bg-primary/95 text-primary-foreground font-black px-8 py-7 rounded-2xl shadow-2xl shadow-primary/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-3 uppercase tracking-widest text-xs" onClick={handleCreateNew}>
+                        <Plus className="h-5 w-5" /> Add New Customer
+                    </Button>
                     <CustomerWizard
                         open={open}
                         onOpenChange={(val) => {

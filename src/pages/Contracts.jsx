@@ -277,20 +277,11 @@ const Contracts = () => {
             const hay = `${v.licensePlate} ${v.vehicleModel?.brand?.name || ''} ${v.vehicleModel?.name || ''} ${v.fleetCategory?.name || ''}`.toLowerCase();
             if (!catOk || (q && !hay.includes(q))) return false;
 
-            if (v.status !== 'AVAILABLE' && v.id !== formData.vehicleId) return false;
-            if (formData.pickupDate && formData.dropoffDate) {
-                const start = new Date(formData.pickupDate);
-                const end = new Date(formData.dropoffDate);
-                const hasConflict = contracts.some((c) => {
-                    if (c.vehicleId !== v.id) return false;
-                    if (editingId && c.id === editingId) return false;
-                    if (!['UPCOMING', 'IN_PROGRESS'].includes(c.status)) return false;
-                    const cStart = new Date(c.pickupDate);
-                    const cEnd = new Date(c.dropoffDate);
-                    return start <= cEnd && end >= cStart;
-                });
-                if (hasConflict) return false;
-            }
+            // User requirement: allow RENTED vehicles as well.
+            // We only block MAINTENANCE or other restrictive statuses if they exist.
+            if (!['AVAILABLE', 'RENTED'].includes(v.status) && v.id !== formData.vehicleId) return false;
+            
+            // We no longer hide conflicted vehicles here, because we want to show a validation error instead.
             return true;
         });
     }, [
@@ -298,11 +289,37 @@ const Contracts = () => {
         contractVehicleCategoryFilter,
         contractVehicleSearch,
         formData.vehicleId,
-        formData.pickupDate,
-        formData.dropoffDate,
-        contracts,
-        editingId,
     ]);
+
+    // Validation for Date/Time overlap
+    const rangeConflict = useMemo(() => {
+        if (!formData.vehicleId || !formData.pickupDate || !formData.dropoffDate || !formData.pickupTime || !formData.dropoffTime) return null;
+
+        const newStart = combineDateAndTime(formData.pickupDate, formData.pickupTime);
+        const newEnd = combineDateAndTime(formData.dropoffDate, formData.dropoffTime);
+
+        if (!newStart || !newEnd || newEnd <= newStart) return null;
+
+        const conflict = contracts.find((c) => {
+            if (c.vehicleId !== formData.vehicleId) return false;
+            if (editingId && c.id === editingId) return false;
+            if (!['UPCOMING', 'IN_PROGRESS'].includes(c.status)) return false;
+
+            const cStart = new Date(c.pickupDate);
+            const cEnd = new Date(c.dropoffDate);
+            // Quick date-only filter first for performance
+            if (newStart > cEnd || newEnd < cStart) return false;
+
+            // Precise check
+            const ctStart = combineDateAndTime(c.pickupDate, c.pickupTime);
+            const ctEnd = combineDateAndTime(c.dropoffDate, c.dropoffTime);
+            if (!ctStart || !ctEnd) return false;
+
+            return (newStart < ctEnd) && (ctStart < newEnd);
+        });
+
+        return conflict;
+    }, [formData, contracts, editingId]);
 
     useEffect(() => {
         if (editingId && isOpen) {
@@ -1024,18 +1041,24 @@ const Contracts = () => {
                                         />
                                     </div>
                                     <Select disabled={isReadOnly || isConfirmed} value={formData.vehicleId} onValueChange={(val) => handleChange('vehicleId', val)}>
-                                        <SelectTrigger>
+                                        <SelectTrigger className={cn(rangeConflict && "border-destructive ring-destructive")}>
                                             <SelectValue placeholder="Select Vehicle" />
                                         </SelectTrigger>
                                         <SelectContent>
                                             {vehiclesForContractSelect.map((v) => (
-                                                <SelectItem key={v.id} value={v.id}>
+                                                <SelectItem key={v.id} value={v.id} className={cn(v.status === 'RENTED' && "text-amber-600 italic")}>
                                                     {v.licensePlate} - {v.vehicleModel?.name}
                                                     {v.fleetCategory?.name ? ` · ${v.fleetCategory.name}` : ''}
+                                                    {v.status === 'RENTED' ? ' (Currently Rented)' : ''}
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
+                                    {rangeConflict && (
+                                        <p className="text-[10px] font-bold text-destructive animate-pulse bg-destructive/5 p-2 rounded border border-destructive/20 leading-tight">
+                                            This vehicle already have upcoming booking that date and time range, so please select another vehicle or select another date time range
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
@@ -2633,7 +2656,15 @@ const Contracts = () => {
 
                     <div className="flex justify-end pt-4 gap-2">
                         <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
-                        {!isReadOnly && <Button onClick={handleSubmit}>{editingId ? "Update Contract" : "Create Contract"}</Button>}
+                        {!isReadOnly && (
+                            <Button 
+                                onClick={handleSubmit} 
+                                disabled={!!rangeConflict}
+                                className={cn(rangeConflict && "opacity-50 cursor-not-allowed")}
+                            >
+                                {editingId ? "Update Contract" : "Create Contract"}
+                            </Button>
+                        )}
                     </div>
                 </DialogContent>
             </Dialog>
