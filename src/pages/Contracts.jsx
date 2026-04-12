@@ -59,6 +59,48 @@ const ImageViewDialog = ({ src, open, onOpenChange }) => (
     </Dialog>
 );
 
+const parseTimeTo24h = (timeStr) => {
+    if (!timeStr || typeof timeStr !== 'string') return null;
+    const t = timeStr.trim().toUpperCase();
+
+    const m24 = /^(\d{1,2}):(\d{2})$/.exec(t);
+    if (m24) {
+        const h = Number(m24[1]);
+        const min = Number(m24[2]);
+        if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return { h, min };
+    }
+
+    const m12 = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/.exec(t);
+    if (m12) {
+        let h = Number(m12[1]);
+        const min = Number(m12[2]);
+        const ap = m12[3];
+        if (h < 1 || h > 12 || min < 0 || min > 59) return null;
+        if (ap === 'PM' && h !== 12) h += 12;
+        if (ap === 'AM' && h === 12) h = 0;
+        return { h, min };
+    }
+
+    return null;
+};
+
+const combineDateAndTime = (dateStr, timeStr) => {
+    if (!dateStr) return null;
+    let d;
+    if (dateStr instanceof Date) {
+        d = dateStr;
+    } else {
+        d = new Date(dateStr);
+    }
+
+    if (isNaN(d.getTime())) return null;
+
+    const hhmm = parseTimeTo24h(timeStr);
+    if (!hhmm) return null;
+
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), hhmm.h, hhmm.min, 0, 0);
+};
+
 const Contracts = () => {
     const [contracts, setContracts] = useState([]);
     const [filteredContracts, setFilteredContracts] = useState([]); // Displayed contracts
@@ -270,6 +312,16 @@ const Contracts = () => {
     }, []);
 
     const vehiclesForContractSelect = useMemo(() => {
+        // Prepare combined dates if they are fully filled
+        const newStart = (formData.pickupDate && formData.pickupTime && formData.dropoffDate && formData.dropoffTime) 
+            ? combineDateAndTime(formData.pickupDate, formData.pickupTime) 
+            : null;
+        const newEnd = (formData.pickupDate && formData.pickupTime && formData.dropoffDate && formData.dropoffTime) 
+            ? combineDateAndTime(formData.dropoffDate, formData.dropoffTime) 
+            : null;
+
+        const hasFullDates = newStart && newEnd && newEnd > newStart;
+
         return vehicles.filter((v) => {
             const catOk =
                 contractVehicleCategoryFilter === 'all' || v.fleetCategoryId === contractVehicleCategoryFilter;
@@ -277,11 +329,26 @@ const Contracts = () => {
             const hay = `${v.licensePlate} ${v.vehicleModel?.brand?.name || ''} ${v.vehicleModel?.name || ''} ${v.fleetCategory?.name || ''}`.toLowerCase();
             if (!catOk || (q && !hay.includes(q))) return false;
 
-            // User requirement: allow RENTED vehicles as well.
-            // We only block MAINTENANCE or other restrictive statuses if they exist.
+            // Base status check
             if (!['AVAILABLE', 'RENTED'].includes(v.status) && v.id !== formData.vehicleId) return false;
             
-            // We no longer hide conflicted vehicles here, because we want to show a validation error instead.
+            // If dates are fully filled, filter out vehicles that have a conflict
+            if (hasFullDates) {
+                const conflict = contracts.some((c) => {
+                    if (c.vehicleId !== v.id) return false;
+                    if (editingId && c.id === editingId) return false;
+                    if (!['UPCOMING', 'IN_PROGRESS'].includes(c.status)) return false;
+
+                    const ctStart = combineDateAndTime(c.pickupDate, c.pickupTime);
+                    const ctEnd = combineDateAndTime(c.dropoffDate, c.dropoffTime);
+                    if (!ctStart || !ctEnd) return false;
+
+                    // Strict overlap check: (NewStart < ExistingEnd) && (ExistingStart < NewEnd)
+                    return (newStart < ctEnd) && (ctStart < newEnd);
+                });
+                if (conflict) return false;
+            }
+
             return true;
         });
     }, [
@@ -289,6 +356,12 @@ const Contracts = () => {
         contractVehicleCategoryFilter,
         contractVehicleSearch,
         formData.vehicleId,
+        formData.pickupDate,
+        formData.pickupTime,
+        formData.dropoffDate,
+        formData.dropoffTime,
+        contracts,
+        editingId
     ]);
 
     // Validation for Date/Time overlap
@@ -1014,71 +1087,24 @@ const Contracts = () => {
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label>Vehicle</Label>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <Select
-                                            disabled={isReadOnly}
-                                            value={contractVehicleCategoryFilter}
-                                            onValueChange={setContractVehicleCategoryFilter}
-                                        >
-                                            <SelectTrigger className="h-9 text-xs">
-                                                <SelectValue placeholder="Category" />
+                                {editingId && (
+                                    <div className="space-y-2">
+                                        <Label>Status</Label>
+                                        <Select disabled={isReadOnly} value={formData.status} onValueChange={(val) => handleChange('status', val)}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select Status" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="all">All categories</SelectItem>
-                                                {fleetCategories.map((c) => (
-                                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                                                ))}
+                                                <SelectItem value="UPCOMING">Upcoming</SelectItem>
+                                                <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+                                                <SelectItem value="RETURN">Return</SelectItem>
+                                                <SelectItem value="COMPLETED">Completed</SelectItem>
+                                                <SelectItem value="CANCELLED">Cancelled</SelectItem>
                                             </SelectContent>
                                         </Select>
-                                        <Input
-                                            disabled={isReadOnly}
-                                            className="h-9 text-xs"
-                                            placeholder="Search plate, brand, model, category…"
-                                            value={contractVehicleSearch}
-                                            onChange={(e) => setContractVehicleSearch(e.target.value)}
-                                        />
                                     </div>
-                                    <Select disabled={isReadOnly || isConfirmed} value={formData.vehicleId} onValueChange={(val) => handleChange('vehicleId', val)}>
-                                        <SelectTrigger className={cn(rangeConflict && "border-destructive ring-destructive")}>
-                                            <SelectValue placeholder="Select Vehicle" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {vehiclesForContractSelect.map((v) => (
-                                                <SelectItem key={v.id} value={v.id} className={cn(v.status === 'RENTED' && "text-amber-600 italic")}>
-                                                    {v.licensePlate} - {v.vehicleModel?.name}
-                                                    {v.fleetCategory?.name ? ` · ${v.fleetCategory.name}` : ''}
-                                                    {v.status === 'RENTED' ? ' (Currently Rented)' : ''}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    {rangeConflict && (
-                                        <p className="text-[10px] font-bold text-destructive animate-pulse bg-destructive/5 p-2 rounded border border-destructive/20 leading-tight">
-                                            This vehicle already have upcoming booking that date and time range, so please select another vehicle or select another date time range
-                                        </p>
-                                    )}
-                                </div>
+                                )}
                             </div>
-
-                            {editingId && (
-                                <div className="space-y-2">
-                                    <Label>Status</Label>
-                                    <Select disabled={isReadOnly} value={formData.status} onValueChange={(val) => handleChange('status', val)}>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select Status" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="UPCOMING">Upcoming</SelectItem>
-                                            <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
-                                            <SelectItem value="RETURN">Return</SelectItem>
-                                            <SelectItem value="COMPLETED">Completed</SelectItem>
-                                            <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            )}
 
                             {formData.status === 'RETURN' ? (
                                 <div className="grid grid-cols-2 gap-4">
@@ -1121,6 +1147,69 @@ const Contracts = () => {
                                     </div>
                                 </div>
                             )}
+
+                            <div className="space-y-2">
+                                <Label>Select Vehicle</Label>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div className="sm:col-span-2 space-y-2">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            <Select
+                                                disabled={isReadOnly}
+                                                value={contractVehicleCategoryFilter}
+                                                onValueChange={setContractVehicleCategoryFilter}
+                                            >
+                                                <SelectTrigger className="h-9 text-xs">
+                                                    <SelectValue placeholder="Category" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="all">All categories</SelectItem>
+                                                    {fleetCategories.map((c) => (
+                                                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            <Input
+                                                disabled={isReadOnly}
+                                                className="h-9 text-xs"
+                                                placeholder="Search plate, brand, model, category…"
+                                                value={contractVehicleSearch}
+                                                onChange={(e) => setContractVehicleSearch(e.target.value)}
+                                            />
+                                        </div>
+                                        <Select disabled={isReadOnly || isConfirmed} value={formData.vehicleId} onValueChange={(val) => handleChange('vehicleId', val)}>
+                                            <SelectTrigger className={cn(rangeConflict && "border-destructive ring-destructive")}>
+                                                <SelectValue placeholder="Select Vehicle" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {vehiclesForContractSelect.map((v) => (
+                                                    <SelectItem key={v.id} value={v.id} className={cn(v.status === 'RENTED' && "text-amber-600 italic")}>
+                                                        {v.licensePlate} - {v.vehicleModel?.name}
+                                                        {v.fleetCategory?.name ? ` · ${v.fleetCategory.name}` : ''}
+                                                        {v.status === 'RENTED' ? ' (Currently Rented)' : ''}
+                                                    </SelectItem>
+                                                ))}
+                                                {vehiclesForContractSelect.length === 0 && (
+                                                    <div className="p-4 text-center text-xs text-muted-foreground">
+                                                        No available vehicles for the selected range.
+                                                    </div>
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                        {rangeConflict && (
+                                            <p className="text-[10px] font-bold text-destructive animate-pulse bg-destructive/5 p-2 rounded border border-destructive/20 leading-tight">
+                                                This vehicle already have upcoming booking that date and time range, so please select another vehicle or select another date time range
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center justify-center border rounded-md bg-muted/30 p-2 text-center">
+                                        {!formData.pickupDate || !formData.dropoffDate ? (
+                                            <p className="text-[10px] text-muted-foreground italic">Select dates first for precise availability.</p>
+                                        ) : (
+                                            <p className="text-[10px] text-indigo-600 font-medium">Showing vehicles available for selected dates.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
 
                             {formData.status === 'COMPLETED' && (
                                 // Completed mode: additionally show actual return date/time
@@ -1233,50 +1322,7 @@ const Contracts = () => {
                                         // When status is COMPLETED and return date/time is entered,
                                         // late return time covers extra mileage first (dailyKmLimit proportionally),
                                         // then any remaining mileage is charged as extra km.
-                                        const parseTimeTo24h = (timeStr) => {
-                                            if (!timeStr || typeof timeStr !== 'string') return null;
-                                            const t = timeStr.trim().toUpperCase();
 
-                                            const m24 = /^(\d{1,2}):(\d{2})$/.exec(t);
-                                            if (m24) {
-                                                const h = Number(m24[1]);
-                                                const min = Number(m24[2]);
-                                                if (h >= 0 && h <= 23 && min >= 0 && min <= 59) return { h, min };
-                                            }
-
-                                            const m12 = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/.exec(t);
-                                            if (m12) {
-                                                let h = Number(m12[1]);
-                                                const min = Number(m12[2]);
-                                                const ap = m12[3];
-                                                if (h < 1 || h > 12 || min < 0 || min > 59) return null;
-                                                if (ap === 'PM' && h !== 12) h += 12;
-                                                if (ap === 'AM' && h === 12) h = 0;
-                                                return { h, min };
-                                            }
-
-                                            return null;
-                                        };
-
-                                        const combineDateAndTime = (dateStr, timeStr) => {
-                                            if (!dateStr) return null;
-                                            if (dateStr instanceof Date) {
-                                                if (isNaN(dateStr.getTime())) return null;
-                                                const hhmm = parseTimeTo24h(timeStr);
-                                                if (!hhmm) return null;
-                                                return new Date(dateStr.getFullYear(), dateStr.getMonth(), dateStr.getDate(), hhmm.h, hhmm.min, 0, 0);
-                                            }
-
-                                            // Expect "yyyy-MM-dd"
-                                            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
-                                            if (!m) return null;
-                                            const y = Number(m[1]);
-                                            const mo = Number(m[2]);
-                                            const d = Number(m[3]);
-                                            const hhmm = parseTimeTo24h(timeStr);
-                                            if (!hhmm) return null;
-                                            return new Date(y, mo - 1, d, hhmm.h, hhmm.min, 0, 0);
-                                        };
 
                                         let overtimeMinutesCeil = 0;
                                         let extraDays = 0;
