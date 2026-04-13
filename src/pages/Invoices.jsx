@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { Search, Plus, Filter, FileText, Download, MoreVertical, ExternalLink, Mail, AlertCircle, CheckCircle2, Printer, CreditCard, MessageCircle } from 'lucide-react';
+import { Search, Plus, Filter, FileText, Download, MoreVertical, ExternalLink, Mail, AlertCircle, CheckCircle2, Printer, CreditCard, MessageCircle, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +40,16 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function customerDisplayNameForWhatsApp(customer) {
     if (!customer) return 'there';
@@ -92,6 +102,11 @@ const Invoices = () => {
     const [previewCompanyContact, setPreviewCompanyContact] = useState('');
     const [previewCompanyWhatsapp, setPreviewCompanyWhatsapp] = useState('');
     const [whatsappSending, setWhatsappSending] = useState(false);
+
+    // Deletion states
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [idToDelete, setIdToDelete] = useState(null);
+    const [statusToDelete, setStatusToDelete] = useState(null);
 
     useEffect(() => {
         fetchInvoices();
@@ -301,15 +316,47 @@ const Invoices = () => {
         }
     };
 
-    const sendInvoiceWhatsAppFromRow = async (e, inv) => {
-        e.stopPropagation();
+    const deleteInvoice = (invoiceId) => {
+        if (!invoiceId) return;
+        
+        const inv = invoices.find(i => i.invoiceId === invoiceId) || selected;
+        const status = inv?.status || inv?.raw?.status;
+
+        setIdToDelete(invoiceId);
+        setStatusToDelete(status);
+        setDeleteDialogOpen(true);
+    };
+
+    const performDelete = async () => {
+        if (!idToDelete) return;
+
         try {
-            const { data: full } = await api.get(`/invoices/${inv.invoiceId}`);
-            await sendInvoiceWhatsApp(full);
+            setActionLoading(true);
+            await api.delete(`/invoices/${idToDelete}`);
+            
+            // Update local state
+            setInvoices(prev => prev.filter(i => i.invoiceId !== idToDelete));
+            if (selected?.id === idToDelete || selected?.invoiceNo === idToDelete) {
+                setSelected(null);
+                setDetailOpen(false);
+            }
+            setDeleteDialogOpen(false);
+            setIdToDelete(null);
+            setStatusToDelete(null);
+            alert('Invoice deleted successfully');
         } catch (e) {
             console.error(e);
-            alert(e.response?.data?.message || 'Failed to load invoice for WhatsApp');
+            alert(e.response?.data?.message || 'Failed to delete invoice');
+        } finally {
+            setActionLoading(false);
         }
+    };
+
+    const canDelete = (invoice) => {
+        if (!user) return false;
+        const status = invoice?.status || invoice?.raw?.status;
+        if (status === 'PAID') return user.role === 'SUPER_ADMIN';
+        return user.role === 'ADMIN' || user.role === 'SUPER_ADMIN';
     };
 
     const printInvoice = async () => {
@@ -675,6 +722,18 @@ const Invoices = () => {
                                                     <button className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest text-rose-500 opacity-50" type="button" disabled title="Use invoice detail actions">
                                                         <AlertCircle className="h-4 w-4" /> Void Invoice
                                                     </button>
+                                                    {canDelete(inv) && (
+                                                        <button
+                                                            type="button"
+                                                            className="w-full text-left p-3 rounded-xl font-bold flex gap-3 text-xs uppercase tracking-widest text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                deleteInvoice(inv.invoiceId);
+                                                            }}
+                                                        >
+                                                            <Trash2 className="h-4 w-4" /> Delete Invoice
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </PopoverContent>
                                         </Popover>
@@ -804,9 +863,38 @@ const Invoices = () => {
                                 <CreditCard className="w-4 h-4 mr-2" /> Create Credit Note
                             </Button>
                         )}
+                        {selected && canDelete(selected) && (
+                            <Button variant="destructive" className="bg-rose-600 hover:bg-rose-700" onClick={() => deleteInvoice(selected.id)} disabled={actionLoading || detailLoading}>
+                                <Trash2 className="w-4 h-4 mr-2" /> Delete Invoice
+                            </Button>
+                        )}
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <AlertDialogContent className="rounded-2xl border-border bg-card/95 backdrop-blur-2xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-xl font-black tracking-tight italic">
+                            {statusToDelete === 'PAID' ? 'CRITICAL: Delete Paid Invoice?' : 'Confirm Deletion'}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="font-medium">
+                            {statusToDelete === 'PAID' 
+                                ? "WARNING: This is a PAID invoice. Deleting it will permanently remove the income from Profit & Loss reports. This action cannot be undone."
+                                : "Are you sure you want to delete this invoice record from the system? This action is permanent."}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="gap-2">
+                        <AlertDialogCancel className="rounded-xl border-border hover:bg-muted font-bold">Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={performDelete}
+                            className="bg-rose-600 hover:bg-rose-700 text-white font-black uppercase tracking-widest text-[10px] rounded-xl px-6 h-11"
+                        >
+                            Execute Deletion
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

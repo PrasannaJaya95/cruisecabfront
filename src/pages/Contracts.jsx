@@ -337,7 +337,7 @@ const Contracts = () => {
                 const conflict = contracts.some((c) => {
                     if (c.vehicleId !== v.id) return false;
                     if (editingId && c.id === editingId) return false;
-                    if (!['UPCOMING', 'IN_PROGRESS'].includes(c.status)) return false;
+                    if (!['UPCOMING', 'IN_PROGRESS', 'RETURN'].includes(c.status)) return false;
 
                     const ctStart = combineDateAndTime(c.pickupDate, c.pickupTime);
                     const ctEnd = combineDateAndTime(c.dropoffDate, c.dropoffTime);
@@ -376,7 +376,7 @@ const Contracts = () => {
         const conflict = contracts.find((c) => {
             if (c.vehicleId !== formData.vehicleId) return false;
             if (editingId && c.id === editingId) return false;
-            if (!['UPCOMING', 'IN_PROGRESS'].includes(c.status)) return false;
+            if (!['UPCOMING', 'IN_PROGRESS', 'RETURN'].includes(c.status)) return false;
 
             const cStart = new Date(c.pickupDate);
             const cEnd = new Date(c.dropoffDate);
@@ -572,7 +572,9 @@ const Contracts = () => {
 
             fuelLevel: contract.fuelLevel,
 
-            startOdometer: contract.startOdometer,
+            startOdometer: (contract.status === 'UPCOMING' && contract.vehicle?.lastOdometer > contract.startOdometer)
+                ? contract.vehicle.lastOdometer
+                : contract.startOdometer,
             endOdometer: contract.endOdometer || '',
 
             license: contract.license,
@@ -713,8 +715,15 @@ const Contracts = () => {
                     // Return basics
                     actualReturnDate: rawPayload.actualReturnDate,
                     actualReturnTime: rawPayload.actualReturnTime,
-                    startOdometer: rawPayload.startOdometer,
-                    endOdometer: rawPayload.endOdometer,
+                    startOdometer: Number(rawPayload.startOdometer) || 0,
+                    endOdometer: Number(rawPayload.endOdometer) || 0,
+
+                    // Basic financials must be preserved/updated
+                    appliedDailyRate: Number(rawPayload.appliedDailyRate) || 0,
+                    securityDeposit: Number(rawPayload.securityDeposit) || 0,
+                    dailyKmLimit: Number(rawPayload.dailyKmLimit) || 0,
+                    allocatedKm: Number(rawPayload.allocatedKm) || 0,
+                    extraMileageCharge: Number(rawPayload.extraMileageCharge) || 0,
 
                     // Return checklist
                     returnLicense: rawPayload.returnLicense,
@@ -733,13 +742,13 @@ const Contracts = () => {
                     returnRemark: rawPayload.returnRemark,
 
                     // Extra return charges (consumed from security deposit)
-                    damageCharge: rawPayload.damageCharge,
-                    otherChargeAmount: rawPayload.otherChargeAmount,
+                    damageCharge: Number(rawPayload.damageCharge) || 0,
+                    otherChargeAmount: Number(rawPayload.otherChargeAmount) || 0,
                     otherChargeDescription: rawPayload.otherChargeDescription,
 
                     // Collection (optional)
                     isCollection: rawPayload.isCollection,
-                    collectionCharge: rawPayload.collectionCharge,
+                    collectionCharge: Number(rawPayload.collectionCharge) || 0,
 
                     // Return images
                     returnInspectionImages: rawPayload.returnInspectionImages,
@@ -788,6 +797,12 @@ const Contracts = () => {
                     mudCovers: rawPayload.mudCovers,
 
                     inspectionImages: rawPayload.inspectionImages,
+                };
+            } else if (status === 'CANCELLED') {
+                payloadToSend = {
+                    status,
+                    customerId: rawPayload.customerId,
+                    vehicleId: rawPayload.vehicleId
                 };
             }
 
@@ -875,7 +890,25 @@ const Contracts = () => {
         if (!editingId) return;
         try {
             setInvoiceLoading(true);
-            const { data } = await api.post(`/invoices/contract/${editingId}/return`, {});
+            // Send live form data to ensure invoice matches the on-screen summary
+            const { data } = await api.post(`/invoices/contract/${editingId}/return`, {
+                // Return basics
+                actualReturnDate: formData.actualReturnDate,
+                actualReturnTime: formData.actualReturnTime,
+                endOdometer: formData.endOdometer,
+                
+                // Charges
+                damageCharge: formData.damageCharge,
+                otherChargeAmount: formData.otherChargeAmount,
+                otherChargeDescription: formData.otherChargeDescription,
+                isCollection: formData.isCollection,
+                collectionCharge: formData.collectionCharge,
+                
+                // Rate overrides
+                extraMileageCharge: formData.extraMileageCharge,
+                securityDeposit: formData.securityDeposit,
+                appliedDailyRate: formData.appliedDailyRate
+            });
             setReturnInvoice(data);
             if (openDialog) setInvoiceDialogOpen(true);
         } catch (error) {
