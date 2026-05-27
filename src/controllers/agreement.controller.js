@@ -315,9 +315,9 @@ function renderAgreementHtml(agreement) {
     <div class="para">Odometer Reading at Start: ${line(vehicle.odometerStart, 180)}</div>
     <div class="para"><b>1. Term</b> This Agreement is valid from ${line(term.fromDate, 170)} to ${line(term.toDate, 170)}.</div>
     <div class="para"><b>2. Late Return Charges / Extension</b> If the Second Party uses the vehicle beyond the term of this Agreement, the following additional rent will be charged and the first party should be informed and should obtain the approval of the first party.</div>
-    <div class="para"><b>3. Early Termination</b> If the Second Party terminates this Agreement before the end of the term, they must provide at least ${line('', 120)} days' notice. If notice is not given, Rs. ${line('', 120)} will be charged.</div>
+    <div class="para"><b>3. Early Termination</b> Early termination by the Second Party is not permitted. The Second Party shall be liable for the total rental amount for the full term of this Agreement, regardless of any attempt to terminate before the end of the term.</div>
     <div class="para"><b>4. Deposit and Damages</b> At the beginning of the Agreement, the Second Party shall pay a deposit of Rs. ${line(Number(financials.securityDeposit || 0).toLocaleString(), 140)}. Any damages caused by the Second Party or third parties will be deducted from this deposit. Damages by third parties will be deducted upon return of the deposit.</div>
-    <div class="para"><b>5. Vehicle Cleaning</b> The Second Party must wash and vacuum the vehicle from a service station before returning it. Failure to do so will result in a charge of Rs. 1,000.</div>
+    <div class="para"><b>5. Vehicle Cleaning</b> The Second Party must wash and vacuum the vehicle from a service station before returning it. Failure to do so will result in a charge of Rs. 2,000.</div>
     <div class="para"><b>6. Refund of Deposit</b> If the vehicle is returned clean, with no damage or error indicators, the deposit will be refunded immediately after a comprehensive checkup. This process may take up to 24 hours.</div>
   ${pageEnd(1)}
 
@@ -359,7 +359,7 @@ function renderAgreementHtml(agreement) {
   ${pageStart(4)}
     <div class="para"><b>27. Internal Damage</b> The Second Party will bear the cost of damages to internal parts caused by careless use during the rental period.</div>
     <div class="para"><b>28. Regular Maintenance Checks</b> The Second Party must regularly check air pressure, coolant levels, and oil levels. Costs from running the vehicle without these checks will be borne by the Second Party.</div>
-    <div class="para"><b>29. Duration</b> For the purposes of this Agreement, a month shall be calculated as thirty (30) days.</div>
+    <div class="para"><b>29. Duration</b> For the purposes of this agreement, a month shall be calculated as thirty (30 days). One day shall be considered a single calendar date.</div>
     <div class="para">The standard vehicle pickup time shall be 8:00 AM, and the return time shall be 5:00 PM, during daylight hours, unless a different schedule is agreed upon in advance between the First Party and the Second Party.</div>
     <div class="para"><b>30. Purpose</b> The vehicle should be used by the 2nd party for passenger transportation purposes only (but not for goods transportation) and should avoid overloading.</div>
     <div class="para" style="margin-top:12px;"><b>Signatures:</b></div>
