@@ -101,8 +101,64 @@ const SequenceManager = () => {
         }
     };
 
-    const formatKey = (key) => {
-        return key.replace(/_/g, ' ').replace('sequence', '').toUpperCase().trim();
+    const displayTitle = (seq) => {
+        if (seq.label) {
+            return seq.period ? `${seq.label} (${seq.period})` : seq.label;
+        }
+        return seq.key.replace(/_/g, ' ').replace(/\bsequence\b/gi, '').trim().toUpperCase();
+    };
+
+    const globalSequences = sequences.filter((s) => s.category === 'global');
+    const monthlySequences = sequences.filter((s) => s.category === 'monthly');
+    const otherSequences = sequences.filter((s) => s.category === 'other');
+
+    const renderSequenceCard = (seq) => (
+        <div key={seq.key} className="p-6 rounded-[2rem] bg-secondary/20 border border-border/50 flex items-center justify-between hover:bg-secondary/30 transition-all group">
+            <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 mb-1 group-hover:text-primary transition-colors">
+                    {displayTitle(seq)}
+                </p>
+                {seq.description && (
+                    <p className="text-[10px] font-bold text-muted-foreground/50 mb-1 font-calibri">{seq.description}</p>
+                )}
+                <p className="text-3xl font-black text-foreground tracking-tighter tabular-nums font-calibri-bold">{seq.value}</p>
+                {seq.suggestedValue != null && seq.suggestedValue !== seq.value && (
+                    <p className="text-[10px] font-bold text-amber-700/80 mt-1 font-calibri">
+                        Highest in DB: {seq.suggestedValue}
+                    </p>
+                )}
+            </div>
+            <div className="flex gap-2">
+                {seq.suggestedValue != null && (
+                    <Button
+                        onClick={() => handleEdit(seq, { forSync: true })}
+                        disabled={syncingKey === seq.key}
+                        title="Sync counter from existing records"
+                        className="h-12 w-12 rounded-xl bg-card border border-border shadow-sm hover:bg-amber-500 hover:text-white transition-all p-0"
+                    >
+                        <RotateCcw className={`w-5 h-5 ${syncingKey === seq.key ? 'animate-spin' : ''}`} />
+                    </Button>
+                )}
+                <Button
+                    onClick={() => handleEdit(seq)}
+                    className="h-12 w-12 rounded-xl bg-card border border-border shadow-sm hover:bg-primary hover:text-white transition-all p-0"
+                >
+                    <Save className="w-5 h-5" />
+                </Button>
+            </div>
+        </div>
+    );
+
+    const renderSection = (title, items) => {
+        if (!items.length) return null;
+        return (
+            <div className="space-y-4">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground/70 ml-2">{title}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {items.map(renderSequenceCard)}
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -137,42 +193,13 @@ const SequenceManager = () => {
                     </div>
                 ) : sequences.length === 0 ? (
                     <div className="py-20 text-center bg-secondary/10 rounded-[2rem] border border-dashed border-border space-y-2">
-                        <p className="text-sm font-bold text-muted-foreground font-calibri text-shadow-sm">No sequences in the registry yet.</p>
-                        <p className="text-xs text-muted-foreground/70 font-calibri">Create an invoice, contract, client, or other numbered record first — then refresh.</p>
+                        <p className="text-sm font-bold text-muted-foreground font-calibri text-shadow-sm">No sequences available.</p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {sequences.map((seq) => (
-                            <div key={seq.id} className="p-6 rounded-[2rem] bg-secondary/20 border border-border/50 flex items-center justify-between hover:bg-secondary/30 transition-all group">
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 mb-1 group-hover:text-primary transition-colors">{formatKey(seq.key)}</p>
-                                    <p className="text-3xl font-black text-foreground tracking-tighter tabular-nums font-calibri-bold">{seq.value}</p>
-                                    {seq.suggestedValue != null && seq.suggestedValue !== seq.value && (
-                                        <p className="text-[10px] font-bold text-amber-700/80 mt-1 font-calibri">
-                                            Highest in DB: {seq.suggestedValue}
-                                        </p>
-                                    )}
-                                </div>
-                                <div className="flex gap-2">
-                                    {seq.suggestedValue != null && (
-                                        <Button
-                                            onClick={() => handleEdit(seq, { forSync: true })}
-                                            disabled={syncingKey === seq.key}
-                                            title="Sync counter from existing records"
-                                            className="h-12 w-12 rounded-xl bg-card border border-border shadow-sm hover:bg-amber-500 hover:text-white transition-all p-0"
-                                        >
-                                            <RotateCcw className={`w-5 h-5 ${syncingKey === seq.key ? 'animate-spin' : ''}`} />
-                                        </Button>
-                                    )}
-                                    <Button 
-                                        onClick={() => handleEdit(seq)}
-                                        className="h-12 w-12 rounded-xl bg-card border border-border shadow-sm hover:bg-primary hover:text-white transition-all p-0"
-                                    >
-                                        <Save className="w-5 h-5" />
-                                    </Button>
-                                </div>
-                            </div>
-                        ))}
+                    <div className="space-y-8">
+                        {renderSection('Global numbering', globalSequences)}
+                        {renderSection('Monthly numbering (current & prior periods)', monthlySequences)}
+                        {renderSection('Other sequences', otherSequences)}
                     </div>
                 )}
 
@@ -184,7 +211,7 @@ const SequenceManager = () => {
                             </div>
                             <DialogTitle className="text-2xl font-black uppercase tracking-tighter font-calibri-bold">Modify Sequence</DialogTitle>
                             <DialogDescription className="text-sm font-bold opacity-70">
-                                {editingSeq && formatKey(editingSeq.key)} — registry value is the last number used. The next document will be that value + 1.
+                                {editingSeq && displayTitle(editingSeq)} — registry value is the last number used. The next document will be that value + 1.
                                 {editingSeq?.suggestedValue != null && (
                                     <> Highest existing number in database: <strong>{editingSeq.suggestedValue}</strong>.</>
                                 )}
