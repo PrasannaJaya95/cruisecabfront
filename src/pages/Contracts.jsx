@@ -4,6 +4,7 @@ import api from '@/lib/api';
 import { printHtmlDocument } from '@/lib/printHtmlDocument';
 import { partitionInvoiceLinesForAdvance } from '@/lib/invoiceLineTable';
 import { cn } from '@/lib/utils';
+import { resolveDiscountState } from '@/utils/discount';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TimeInput24 } from '@/components/ui/time-input-24';
@@ -796,15 +797,16 @@ const Contracts = () => {
 
         const detectedBaseRate = getBaseRateForCustomerVehicle(contract.vehicleId, contract.customerId);
         const appliedRate = Number(contract.appliedDailyRate || 0);
-        if (detectedBaseRate > 0 && appliedRate <= detectedBaseRate) {
-            const pct = ((detectedBaseRate - appliedRate) / detectedBaseRate) * 100;
-            setDiscountType('PERCENT');
-            setDiscountValue(String(Number.isFinite(pct) ? Number(pct.toFixed(2)) : 0));
-        } else {
-            setDiscountType('PERCENT');
-            setDiscountValue('0');
-        }
-        setBaseDailyRate(detectedBaseRate > 0 ? detectedBaseRate : appliedRate);
+        const storedBase = contract.baseDailyRate != null ? Number(contract.baseDailyRate) : detectedBaseRate;
+        const discount = resolveDiscountState({
+            baseDailyRate: storedBase > 0 ? storedBase : detectedBaseRate,
+            appliedDailyRate: appliedRate,
+            discountType: contract.discountType,
+            discountValue: contract.discountValue,
+        });
+        setDiscountType(discount.discountType);
+        setDiscountValue(discount.discountValue);
+        setBaseDailyRate(discount.baseDailyRate > 0 ? discount.baseDailyRate : appliedRate);
 
         // Populate exchange checklists
         if (contract.vehicleExchanges) {
@@ -936,6 +938,9 @@ const Contracts = () => {
                     dropoffTime: rawPayload.dropoffTime,
 
                     appliedDailyRate: toNum(rawPayload.appliedDailyRate),
+                    baseDailyRate: toNum(baseDailyRate),
+                    discountType,
+                    discountValue: toNum(discountValue),
                     securityDeposit: toNum(rawPayload.securityDeposit),
                     advancePaymentAmount: toNum(rawPayload.advancePaymentAmount),
                     advancePaymentDate: rawPayload.advancePaymentDate,
