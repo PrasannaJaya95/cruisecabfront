@@ -488,6 +488,7 @@ const VehicleManagement = () => {
                 insuranceRenewalDate: undefined,
                 financeInstallmentDate: undefined,
                 ownership: 'COMPANY',
+                rentalType: 'SHORT_TERM',
                 vendorId: '',
                 dailyRentalRate: '',
                 foreignDailyRentalRate: '',
@@ -695,6 +696,15 @@ const VehicleManagement = () => {
             const imageFields = ['licenseFront', 'licenseBack', 'insuranceFront', 'insuranceBack', 'mainImage'];
             imageFields.forEach(f => delete processedData[f]);
             [1, 2, 3, 4].forEach(i => delete processedData[`extraImage${i}`]);
+            delete processedData.brandId;
+
+            // Drop null/empty optional values so the API does not receive invalid fields
+            Object.keys(processedData).forEach((key) => {
+                const value = processedData[key];
+                if (value === null || value === undefined || value === '') {
+                    delete processedData[key];
+                }
+            });
 
             // 4. Final Submission
             setSavingStatus('Saving vehicle details...');
@@ -715,8 +725,16 @@ const VehicleManagement = () => {
         } catch (error) {
             setSavingStatus('');
             console.error("Error saving vehicle:", error);
+            const validationErrors = error.response?.data?.errors;
+            const validationSummary = Array.isArray(validationErrors)
+                ? validationErrors.map((entry) => `${entry.path?.join('.') || 'field'}: ${entry.message}`).join('; ')
+                : '';
             const detailedError = error.response?.data?.message || error.message || "Unknown error";
-            triggerError(`Failed to save vehicle: ${detailedError}`);
+            triggerError(
+                validationSummary
+                    ? `Failed to save vehicle: ${detailedError} (${validationSummary})`
+                    : `Failed to save vehicle: ${detailedError}`
+            );
         }
     };
 

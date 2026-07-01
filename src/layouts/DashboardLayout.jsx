@@ -215,6 +215,11 @@ const DashboardLayout = () => {
                                 </Button>
                             </div>
                         </div>
+                        {import.meta.env.DEV && (
+                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-300">
+                                Cruise Cabs · :5174 · API :5004
+                            </div>
+                        )}
                     </div>
 
 

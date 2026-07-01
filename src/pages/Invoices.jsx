@@ -29,6 +29,10 @@ import { format } from 'date-fns';
 import api, { resolveServerUrl } from '../lib/api';
 import { formatDate, formatDateTime } from '@/lib/dates';
 import { DOCUMENT_PRINT_STYLES, hasPrintBrandContent } from '../lib/printDocumentTheme';
+import {
+    resolveClientContact,
+    renderDocumentCustomerCardHtml,
+} from '../lib/documentCustomerCard';
 import { partitionInvoiceLinesForAdvance } from '../lib/invoiceLineTable';
 import { balanceDueForInvoice } from '../lib/invoiceBalance';
 import {
@@ -419,8 +423,10 @@ const Invoices = () => {
             : '';
 
         const contractNo = selected.contract?.contractNo || '-';
-        const custName = selected.customer?.name || selected.customer?.email || '';
-        const custEmail = selected.customer?.email || '';
+        const customerCard = renderDocumentCustomerCardHtml(
+            resolveClientContact(selected.customer),
+            escapeHtml
+        );
         const plate = selected.vehicle?.licensePlate || '';
         const vehLabel = `${selected.vehicle?.vehicleModel?.brand?.name || ''} ${selected.vehicle?.vehicleModel?.name || ''}`.trim();
         const rawLines = Array.isArray(selected.lines) ? selected.lines : [];
@@ -463,11 +469,7 @@ const Invoices = () => {
       </div>
 
       <div class="doc-cards">
-        <div class="doc-card">
-          <div class="doc-card-label">Bill to</div>
-          <div class="doc-card-value">${escapeHtml(custName)}</div>
-          <div class="doc-card-sub">${escapeHtml(custEmail)}</div>
-        </div>
+        ${customerCard}
         <div class="doc-card">
           <div class="doc-card-label">Vehicle</div>
           <div class="doc-card-value">${escapeHtml(plate)}</div>

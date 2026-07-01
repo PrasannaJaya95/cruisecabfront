@@ -4,6 +4,10 @@ import api, { resolveServerUrl } from '../lib/api';
 import { formatDateTime } from '../lib/dates';
 import useDebounce from '@/hooks/useDebounce';
 import { DOCUMENT_PRINT_STYLES, hasPrintBrandContent } from '../lib/printDocumentTheme';
+import {
+    resolveQuotationCustomerContact,
+    renderDocumentCustomerCardHtml,
+} from '../lib/documentCustomerCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -35,6 +39,31 @@ function qEscape(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function formatQuotationVehicleDisplay(vehicle) {
+    if (!vehicle) return { title: '—', subtitle: '' };
+    const brand = vehicle?.vehicleModel?.brand?.name || '';
+    const model = vehicle?.vehicleModel?.name || '';
+    const title = `${brand} ${model}`.trim() || 'Vehicle';
+    const category = vehicle?.fleetCategory?.name || '';
+    return { title, subtitle: category };
+}
+
+function resolveQuotationMileageTerms(q) {
+    const dailyAllocatedKm = q.dailyAllocatedKm ?? q.vehicle?.dailyAllocatedKm ?? null;
+    const extraKmCharge = q.extraKmCharge ?? q.vehicle?.extraKmCharge ?? null;
+    return { dailyAllocatedKm, extraKmCharge };
+}
+
+function pickCustomerMobile(client) {
+    if (!client) return '';
+    return (
+        client.mobile ||
+        client.phone ||
+        client.contactPersonMobile ||
+        ''
+    ).trim();
 }
 
 /** Local calendar date + time (HH:mm) → ISO string for API / storage */
@@ -125,7 +154,8 @@ export default function Quotations() {
     const [customerId, setCustomerId] = useState('');
     const [customerName, setCustomerName] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
-    const [quotationWhatsAppPhone, setQuotationWhatsAppPhone] = useState('');
+    const [customerPhone, setCustomerPhone] = useState('');
+    const [customerAddress, setCustomerAddress] = useState('');
     const [customerType, setCustomerType] = useState('LOCAL'); // LOCAL | FOREIGN | CORPORATE
 
     const [vehicleId, setVehicleId] = useState('');
@@ -155,6 +185,8 @@ export default function Quotations() {
 
     /** Refundable security deposit. Empty string = 0 but renders as an empty input. */
     const [securityDeposit, setSecurityDeposit] = useState('');
+    const [dailyAllocatedKm, setDailyAllocatedKm] = useState('');
+    const [extraKmCharge, setExtraKmCharge] = useState('');
 
     const fetchData = async () => {
         try {
@@ -341,10 +373,21 @@ export default function Quotations() {
                 : (selectedCustomer.name || '');
             setCustomerName(inferredName);
             setCustomerEmail(selectedCustomer.email || '');
+            setCustomerPhone(pickCustomerMobile(selectedCustomer) || pickCustomerWhatsAppPhone(selectedCustomer) || '');
+            setCustomerAddress(selectedCustomer.address || '');
             setCustomerType((selectedCustomer.type || 'LOCAL').toUpperCase());
-            setQuotationWhatsAppPhone(pickCustomerWhatsAppPhone(selectedCustomer) || '');
         }
     }, [customerMode, selectedCustomer]);
+
+    useEffect(() => {
+        if (!selectedVehicle) return;
+        setDailyAllocatedKm(
+            selectedVehicle.dailyAllocatedKm != null ? String(selectedVehicle.dailyAllocatedKm) : '100'
+        );
+        setExtraKmCharge(
+            selectedVehicle.extraKmCharge != null ? String(selectedVehicle.extraKmCharge) : '0'
+        );
+    }, [selectedVehicle?.id]);
 
     const pickupIso = useMemo(
         () => combineLocalDateTimeToIso(pickupDate, pickupTime),
@@ -464,6 +507,8 @@ export default function Quotations() {
             customerId: customerMode === 'EXISTING' ? customerId : null,
             customerName: customerName.trim(),
             customerEmail: customerEmail || '',
+            customerPhone: customerPhone.trim() || '',
+            customerAddress: customerAddress.trim() || '',
             customerType,
             vehicleId,
             pickupDate: pickupDateIso,
@@ -476,6 +521,8 @@ export default function Quotations() {
                 .filter((r) => r.description.trim() || r.amount !== 0),
             extraAmount: Number(extraAmount || 0),
             securityDeposit: securityDepositAmount,
+            dailyAllocatedKm: dailyAllocatedKm === '' ? null : Number(dailyAllocatedKm),
+            extraKmCharge: extraKmCharge === '' ? null : Number(extraKmCharge),
             totalAmount: Number(grandTotal || 0),
             vehicle: selectedVehicle || null,
         };
@@ -483,7 +530,8 @@ export default function Quotations() {
 
     const buildQuotationWhatsAppText = (q, vehicle, shareUrl = '') => {
         const veh = vehicle || q.vehicle;
-        const vehLabel = `${veh?.vehicleModel?.brand?.name || ''} ${veh?.vehicleModel?.name || ''}`.trim();
+        const vehDisplay = formatQuotationVehicleDisplay(veh);
+        const mileage = resolveQuotationMileageTerms({ ...q, vehicle: veh });
         const issueDate = q.issueDate ? new Date(q.issueDate) : new Date();
         const validUntil = q.validUntil ? new Date(q.validUntil) : addDays(issueDate, 7);
         const rows = Array.isArray(q.extraCharges) ? q.extraCharges : [];
@@ -496,11 +544,21 @@ export default function Quotations() {
             `Hello ${q.customerName || 'there'},`,
             '',
             `Quotation *${q.quotationNo || 'Draft'}*`,
-            `Vehicle: ${veh?.licensePlate || '-'}${vehLabel ? ` (${vehLabel})` : ''}`,
+            `Vehicle: ${vehDisplay.title}${vehDisplay.subtitle ? ` (${vehDisplay.subtitle})` : ''}`,
             `Period: ${formatQuotationDateTime(q.pickupDate)} → ${formatQuotationDateTime(q.dropoffDate)} (${formatRentalPeriod(q.pickupDate, q.dropoffDate)})`,
             `Daily rate: LKR ${Number(q.dailyRate || 0).toLocaleString()}`,
-            `Base rental: LKR ${Number(q.baseAmount || 0).toLocaleString()}`,
         ];
+        if (mileage.dailyAllocatedKm != null || mileage.extraKmCharge != null) {
+            const kmParts = [];
+            if (mileage.dailyAllocatedKm != null) {
+                kmParts.push(`${Number(mileage.dailyAllocatedKm).toLocaleString()} km/day included`);
+            }
+            if (mileage.extraKmCharge != null) {
+                kmParts.push(`LKR ${Number(mileage.extraKmCharge).toLocaleString()} per extra km`);
+            }
+            parts.push(`Mileage: ${kmParts.join(' · ')}`);
+        }
+        parts.push(`Base rental: LKR ${Number(q.baseAmount || 0).toLocaleString()}`);
         if (extraLines) {
             parts.push('Extras:', extraLines);
         }
@@ -582,8 +640,8 @@ export default function Quotations() {
             return;
         }
         const phoneRaw =
-            (savedQuotation && pickCustomerWhatsAppPhone(savedQuotation.customer)) ||
-            quotationWhatsAppPhone.trim() ||
+            (savedQuotation && (savedQuotation.customerPhone || pickCustomerWhatsAppPhone(savedQuotation.customer))) ||
+            customerPhone.trim() ||
             pickCustomerWhatsAppPhone(selectedCustomer);
         const phone = normalizePhoneForWhatsApp(phoneRaw);
         if (!phone) {
@@ -654,6 +712,12 @@ export default function Quotations() {
         const issueDate = q.issueDate ? new Date(q.issueDate) : new Date();
         const validUntil = q.validUntil ? new Date(q.validUntil) : addDays(issueDate, 7);
         const vehicle = q.vehicle || selectedVehicle || null;
+        const vehDisplay = formatQuotationVehicleDisplay(vehicle);
+        const customerCard = renderDocumentCustomerCardHtml(
+            resolveQuotationCustomerContact(q),
+            qEscape
+        );
+        const mileage = resolveQuotationMileageTerms({ ...q, vehicle });
         const rows = Array.isArray(q.extraCharges) ? q.extraCharges : [];
 
         const showBrand = hasPrintBrandContent({
@@ -686,7 +750,22 @@ export default function Quotations() {
             ? `<div class="doc-brand-row">${logoImg}<div>${nameBlock}${addrBlock}${chipRow}</div></div>`
             : '';
 
-        const vehLabel = `${vehicle?.vehicleModel?.brand?.name || ''} ${vehicle?.vehicleModel?.name || ''}`.trim();
+        const mileageHtml = (() => {
+            if (mileage.dailyAllocatedKm == null && mileage.extraKmCharge == null) return '';
+            const kmParts = [];
+            if (mileage.dailyAllocatedKm != null) {
+                kmParts.push(`${Number(mileage.dailyAllocatedKm).toLocaleString()} km/day included`);
+            }
+            if (mileage.extraKmCharge != null) {
+                kmParts.push(`LKR ${Number(mileage.extraKmCharge).toLocaleString()} per extra km`);
+            }
+            if (!kmParts.length) return '';
+            return `
+      <div class="doc-card" style="margin-bottom:16px;">
+        <div class="doc-card-label">Mileage terms</div>
+        <div class="doc-card-value" style="font-size:15px;">${qEscape(kmParts.join(' · '))}</div>
+      </div>`;
+        })();
         const rowsHtml = `
       <tr><td>Base rental (${qEscape(formatRentalPeriod(q.pickupDate, q.dropoffDate))} @ ${Number(q.dailyRate || 0).toLocaleString()} LKR/day)</td><td>${Number(q.baseAmount || 0).toLocaleString()}</td></tr>
       ${rows.map((r) => `
@@ -720,18 +799,15 @@ export default function Quotations() {
       </div>
 
       <div class="doc-cards">
-        <div class="doc-card">
-          <div class="doc-card-label">Customer</div>
-          <div class="doc-card-value">${qEscape(q.customerName || '')}</div>
-          <div class="doc-card-sub">${qEscape(q.customerEmail || '—')}</div>
-          <div class="doc-chip-row" style="margin-top:10px;"><span class="doc-chip">${qEscape(q.customerType || '')}</span></div>
-        </div>
+        ${customerCard}
         <div class="doc-card">
           <div class="doc-card-label">Vehicle</div>
-          <div class="doc-card-value">${qEscape(vehicle?.licensePlate || '')}</div>
-          <div class="doc-card-sub">${qEscape(vehLabel)}</div>
+          <div class="doc-card-value">${qEscape(vehDisplay.title)}</div>
+          <div class="doc-card-sub">${qEscape(vehDisplay.subtitle || 'Subject to fleet availability')}</div>
         </div>
       </div>
+
+      ${mileageHtml}
 
         <div class="doc-card" style="margin-bottom:16px;background:#fff;border-style:dashed;">
         <div class="doc-card-label">Rental period</div>
@@ -824,6 +900,8 @@ export default function Quotations() {
                 customerId: q.customerMode === 'EXISTING' ? q.customerId : null,
                 customerName: q.customerName,
                 customerEmail: q.customerEmail || null,
+                customerPhone: q.customerPhone || null,
+                customerAddress: q.customerAddress || null,
                 customerType: q.customerType,
                 vehicleId: q.vehicleId,
                 pickupDate: q.pickupDate,
@@ -838,6 +916,8 @@ export default function Quotations() {
                 extraAmount: q.extraAmount,
                 totalAmount: q.totalAmount,
                 securityDeposit: q.securityDeposit,
+                dailyAllocatedKm: q.dailyAllocatedKm ?? null,
+                extraKmCharge: q.extraKmCharge ?? null,
             };
             const { data: created } = await api.post('/quotations', payload);
             const pickupIso = new Date(created.pickupDate).toISOString();
@@ -863,9 +943,12 @@ export default function Quotations() {
             setCustomerId('');
             setCustomerName('');
             setCustomerEmail('');
-            setQuotationWhatsAppPhone('');
+            setCustomerPhone('');
+            setCustomerAddress('');
             setCustomerType('LOCAL');
             setVehicleId('');
+            setDailyAllocatedKm('');
+            setExtraKmCharge('');
             setPickupDate(format(new Date(), 'yyyy-MM-dd'));
             const nowTime = format(new Date(), 'HH:mm');
             setPickupTime(nowTime);
@@ -1002,7 +1085,7 @@ export default function Quotations() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <Label>Customer Name</Label>
+                            <Label>Customer Name (internal)</Label>
                             <Input
                                 value={customerName}
                                 onChange={(e) => setCustomerName(e.target.value)}
@@ -1011,7 +1094,19 @@ export default function Quotations() {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Customer Email (Optional)</Label>
+                            <Label>Customer Mobile</Label>
+                            <Input
+                                value={customerPhone}
+                                onChange={(e) => setCustomerPhone(e.target.value)}
+                                disabled={customerMode === 'EXISTING'}
+                                placeholder="e.g. 0771234567"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label>Customer Email</Label>
                             <Input
                                 value={customerEmail}
                                 onChange={(e) => setCustomerEmail(e.target.value)}
@@ -1019,21 +1114,20 @@ export default function Quotations() {
                                 placeholder="name@example.com"
                             />
                         </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2 md:col-span-2">
-                            <Label>WhatsApp / mobile (for Send via WhatsApp)</Label>
+                        <div className="space-y-2">
+                            <Label>Customer Address</Label>
                             <Input
-                                value={quotationWhatsAppPhone}
-                                onChange={(e) => setQuotationWhatsAppPhone(e.target.value)}
-                                placeholder="e.g. 0771234567 or 94771234567 — prefilled from customer when possible"
+                                value={customerAddress}
+                                onChange={(e) => setCustomerAddress(e.target.value)}
+                                disabled={customerMode === 'EXISTING'}
+                                placeholder="Address shown on quotation"
                             />
-                            <p className="text-[11px] text-muted-foreground">
-                                Opens WhatsApp Web with a pre-filled quotation summary. Edit this if the customer uses a different WhatsApp number.
-                            </p>
                         </div>
                     </div>
+
+                    <p className="text-[11px] text-muted-foreground">
+                        Customer quotation preview shows name, address, mobile, and email. License plate is hidden from the customer view; staff still select vehicles by plate internally.
+                    </p>
 
                     {customerMode === 'EXISTING' ? (
                         <div className="text-sm text-muted-foreground">
@@ -1142,6 +1236,32 @@ export default function Quotations() {
                                 Vehicles with paid advance for this date range are hidden. 
                                 <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ml-1">advance not paid</span> tags indicate pending bookings.
                             </p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label>Daily allocated km</Label>
+                            <Input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={dailyAllocatedKm}
+                                onChange={(e) => setDailyAllocatedKm(e.target.value)}
+                                placeholder="100"
+                            />
+                            <p className="text-[11px] text-muted-foreground">Prefilled from vehicle; shown on customer quotation.</p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Extra km charge (LKR/km)</Label>
+                            <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={extraKmCharge}
+                                onChange={(e) => setExtraKmCharge(e.target.value)}
+                                placeholder="0.00"
+                            />
                         </div>
                     </div>
 
@@ -1278,9 +1398,15 @@ export default function Quotations() {
                                     </TableBody>
                                 </Table>
                             </div>
-                            <div className="text-[11px] text-muted-foreground mt-4 leading-relaxed">
-                                Quotation validity: 7 days. Quotations do not create contracts and do not affect P&amp;L.
-                                {securityDepositAmount > 0 ? ' The security deposit included in the grand total is refundable.' : ''}
+                            <div className="text-[11px] text-muted-foreground mt-4 leading-relaxed space-y-1">
+                                <div>Quotation validity: 7 days. Quotations do not create contracts and do not affect P&amp;L.
+                                {securityDepositAmount > 0 ? ' The security deposit included in the grand total is refundable.' : ''}</div>
+                                {(dailyAllocatedKm !== '' || extraKmCharge !== '') ? (
+                                    <div>
+                                        Mileage: {dailyAllocatedKm !== '' ? `${Number(dailyAllocatedKm).toLocaleString()} km/day` : '—'}
+                                        {extraKmCharge !== '' ? ` · LKR ${Number(extraKmCharge).toLocaleString()}/extra km` : ''}
+                                    </div>
+                                ) : null}
                             </div>
                         </CardContent>
                     </Card>
